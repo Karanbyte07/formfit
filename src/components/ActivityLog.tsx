@@ -19,11 +19,11 @@ const DOT: Record<LogEntry['type'], string> = {
 export default function ActivityLog() {
   return (
     <div
-      className="rounded-xl overflow-hidden"
+      className="rounded-xl overflow-hidden shrink-0"
       style={{ border: '1px solid var(--color-border)' }}
     >
       <div
-        className="px-3 py-2 text-xs font-semibold uppercase tracking-wide"
+        className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide"
         style={{
           background: 'var(--color-bg)',
           borderBottom: '1px solid var(--color-border)',
@@ -32,17 +32,23 @@ export default function ActivityLog() {
       >
         Activity Log
       </div>
-      <div className="divide-y" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-        {FAKE_LOG.map(entry => (
-          <div key={entry.id} className="flex items-start gap-2 px-3 py-2">
+      <div style={{ background: 'var(--color-surface)' }}>
+        {FAKE_LOG.map((entry, i) => (
+          <div
+            key={entry.id}
+            className="flex items-start gap-2 px-3 py-1.5"
+            style={{
+              borderBottom: i < FAKE_LOG.length - 1 ? '1px solid var(--color-border)' : undefined,
+            }}
+          >
             <span
-              className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0"
+              className="mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0"
               style={{ background: DOT[entry.type] }}
             />
-            <span className="text-xs font-mono flex-shrink-0" style={{ color: 'var(--color-muted)' }}>
+            <span className="text-[11px] font-mono flex-shrink-0" style={{ color: 'var(--color-muted)' }}>
               {entry.time}
             </span>
-            <span className="text-xs flex-1" style={{ color: 'var(--color-text)' }}>
+            <span className="text-xs flex-1 leading-snug" style={{ color: 'var(--color-text)' }}>
               {entry.message}
             </span>
           </div>

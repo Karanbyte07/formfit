@@ -50,7 +50,7 @@ export default function PreviewPanel() {
           Drop your photo or signature here
         </p>
         <p className="text-sm mb-6 text-center px-4" style={{ color: 'var(--color-muted)' }}>
-          PNG, JPG, HEIC supported · up to 20 MB
+          JPG, PNG or WebP · up to 20 MB
         </p>
 
         <div className="flex gap-3 flex-wrap justify-center px-4">

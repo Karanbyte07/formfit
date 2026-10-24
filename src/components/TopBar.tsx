@@ -64,8 +64,8 @@ export default function TopBar({ activeTab, onTabChange, fileName, fileSize }: T
         ))}
       </nav>
 
-      {/* File badge */}
-      {fileName && (
+      {/* File badge — hidden when no file is loaded (fileName is '') */}
+      {fileName && fileSize && (
         <div
           className="flex items-center gap-2 px-3 py-1 rounded-md text-xs font-medium flex-shrink-0"
           style={{

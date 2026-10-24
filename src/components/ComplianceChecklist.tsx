@@ -16,24 +16,30 @@ const ROWS: ChecklistRow[] = [
 export default function ComplianceChecklist() {
   return (
     <div
-      className="rounded-xl overflow-hidden"
+      className="rounded-xl overflow-hidden shrink-0"
       style={{ border: '1px solid var(--color-border)' }}
     >
       <div
-        className="px-3 py-2 text-xs font-semibold uppercase tracking-wide"
+        className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide flex items-center justify-between"
         style={{
           background: 'var(--color-bg)',
           borderBottom: '1px solid var(--color-border)',
           color: 'var(--color-muted)',
         }}
       >
-        Compliance Check
+        <span>Compliance Check</span>
+        <span
+          className="text-[11px] font-medium normal-case px-2 py-0.5 rounded-full"
+          style={{ background: '#FEF3C7', color: 'var(--color-warning)' }}
+        >
+          2/3 passing
+        </span>
       </div>
       <div style={{ background: 'var(--color-surface)' }}>
         {ROWS.map((row, i) => (
           <div
             key={row.id}
-            className="flex items-center gap-3 px-3 py-2.5"
+            className="flex items-center gap-3 px-3 py-2"
             style={{
               borderBottom: i < ROWS.length - 1 ? '1px solid var(--color-border)' : undefined,
             }}
@@ -43,7 +49,7 @@ export default function ComplianceChecklist() {
             ) : (
               <XCircle size={16} style={{ color: 'var(--color-error)', flexShrink: 0 }} />
             )}
-            <span className="flex-1 text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+            <span className="flex-1 text-xs font-medium" style={{ color: 'var(--color-text)' }}>
               {row.label}
             </span>
             <span

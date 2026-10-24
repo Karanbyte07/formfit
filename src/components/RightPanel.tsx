@@ -8,17 +8,16 @@ import ActivityLog from './ActivityLog'
 export default function RightPanel() {
   return (
     <aside
-      className="flex flex-col gap-4 overflow-y-auto p-4 pb-6"
+      className="flex flex-col gap-3 overflow-y-auto p-4 pb-6 h-full min-h-0 w-full"
       style={{
-        width: 'clamp(300px, 38%, 420px)',
         background: 'var(--color-surface)',
         borderLeft: '1px solid var(--color-border)',
-        flexShrink: 0,
+        boxSizing: 'border-box',
       }}
       aria-label="Command and settings panel"
     >
       {/* (a) Heading */}
-      <div>
+      <div className="shrink-0">
         <h2
           className="text-base font-bold leading-snug"
           style={{ color: 'var(--color-text)' }}
@@ -40,7 +39,7 @@ export default function RightPanel() {
       <ExampleChips />
 
       {/* Divider */}
-      <hr style={{ borderColor: 'var(--color-border)' }} />
+      <hr className="shrink-0 my-0.5" style={{ borderColor: 'var(--color-border)' }} />
 
       {/* (f) Understood chips */}
       <UnderstoodChips />
