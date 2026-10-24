@@ -3,9 +3,11 @@ import type {
   Slot,
   SlotId,
   Intent,
+  Targets,
+  AppSettings,
+  ProcessedResult,
   ActivityLogEntry,
 } from '../types'
-import { applyPipeline } from '../lib/image/pipeline'
 import { closeBitmap } from '../lib/image/load'
 
 export type AppAction =
@@ -20,6 +22,15 @@ export type AppAction =
   | {
       type: 'SET_ACTIVE_SLOT'
       slotId: SlotId
+    }
+  | {
+      type: 'SET_TARGETS'
+      slotId?: SlotId
+      targets: Partial<Targets>
+    }
+  | {
+      type: 'SET_SETTINGS'
+      settings: Partial<AppSettings>
     }
   | {
       type: 'APPLY_OPS'
@@ -42,6 +53,18 @@ export type AppAction =
   | {
       type: 'CLEAR_SLOT'
       slotId?: SlotId
+    }
+  | {
+      type: 'SET_PROCESSING'
+      slotId?: SlotId
+      isProcessing: boolean
+    }
+  | {
+      type: 'SET_PROCESSED_RESULT'
+      slotId?: SlotId
+      result: ProcessedResult
+      logMessage?: string
+      logType?: ActivityLogEntry['type']
     }
   | {
       type: 'LOG_MESSAGE'
@@ -73,6 +96,7 @@ function createEmptySlot(id: SlotId): Slot {
     redoStack: [],
     targets: {},
     result: undefined,
+    isProcessing: false,
   }
 }
 
@@ -143,6 +167,37 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
     }
 
+    case 'SET_SETTINGS': {
+      return {
+        ...state,
+        settings: {
+          ...state.settings,
+          ...action.settings,
+        },
+      }
+    }
+
+    case 'SET_TARGETS': {
+      const targetSlotId = action.slotId || state.activeSlot
+      const slot = state.slots[targetSlotId]
+
+      const updatedTargets: Targets = {
+        ...slot.targets,
+        ...action.targets,
+      }
+
+      return {
+        ...state,
+        slots: {
+          ...state.slots,
+          [targetSlotId]: {
+            ...slot,
+            targets: updatedTargets,
+          },
+        },
+      }
+    }
+
     case 'LOAD_FILE_SUCCESS': {
       const targetSlotId = action.slotId || state.activeSlot
       const prevSlot = state.slots[targetSlotId]
@@ -151,9 +206,6 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       if (prevSlot.original) {
         closeBitmap(prevSlot.original)
       }
-
-      // Initial pipeline result with original image
-      const initialPipeline = applyPipeline(action.bitmap, [])
 
       const updatedSlot: Slot = {
         ...prevSlot,
@@ -165,11 +217,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ops: [],
         history: [],
         redoStack: [],
-        result: {
-          canvas: initialPipeline.canvas,
-          width: initialPipeline.width,
-          height: initialPipeline.height,
-        },
+        result: undefined,
+        isProcessing: true,
       }
 
       const logMsg = action.wasDownscaled
@@ -203,18 +252,13 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
       const newHistory = [...slot.history, slot.ops]
       const newOps = [...slot.ops, ...action.ops]
-      const pipelineRes = applyPipeline(slot.original, newOps)
 
       const updatedSlot: Slot = {
         ...slot,
         ops: newOps,
         history: newHistory,
-        redoStack: [], // clearing redo on new edit
-        result: {
-          canvas: pipelineRes.canvas,
-          width: pipelineRes.width,
-          height: pipelineRes.height,
-        },
+        redoStack: [],
+        isProcessing: true,
       }
 
       const label = action.label || describeOps(action.ops)
@@ -225,7 +269,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           ...state.slots,
           [targetSlotId]: updatedSlot,
         },
-        activityLog: appendLog(state.activityLog, label, 'success'),
+        activityLog: appendLog(state.activityLog, label, 'info'),
       }
     }
 
@@ -240,18 +284,13 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const previousOps = slot.history[slot.history.length - 1]
       const newHistory = slot.history.slice(0, -1)
       const newRedoStack = [...(slot.redoStack || []), slot.ops]
-      const pipelineRes = applyPipeline(slot.original, previousOps)
 
       const updatedSlot: Slot = {
         ...slot,
         ops: previousOps,
         history: newHistory,
         redoStack: newRedoStack,
-        result: {
-          canvas: pipelineRes.canvas,
-          width: pipelineRes.width,
-          height: pipelineRes.height,
-        },
+        isProcessing: true,
       }
 
       return {
@@ -275,18 +314,13 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const nextOps = slot.redoStack[slot.redoStack.length - 1]
       const newRedoStack = slot.redoStack.slice(0, -1)
       const newHistory = [...slot.history, slot.ops]
-      const pipelineRes = applyPipeline(slot.original, nextOps)
 
       const updatedSlot: Slot = {
         ...slot,
         ops: nextOps,
         history: newHistory,
         redoStack: newRedoStack,
-        result: {
-          canvas: pipelineRes.canvas,
-          width: pipelineRes.width,
-          height: pipelineRes.height,
-        },
+        isProcessing: true,
       }
 
       return {
@@ -308,18 +342,13 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
 
       const newHistory = [...slot.history, slot.ops]
-      const pipelineRes = applyPipeline(slot.original, [])
 
       const updatedSlot: Slot = {
         ...slot,
         ops: [],
         history: newHistory,
         redoStack: [],
-        result: {
-          canvas: pipelineRes.canvas,
-          width: pipelineRes.width,
-          height: pipelineRes.height,
-        },
+        isProcessing: true,
       }
 
       return {
@@ -355,6 +384,45 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           `Cleared ${targetSlotId} slot`,
           'info'
         ),
+      }
+    }
+
+    case 'SET_PROCESSING': {
+      const targetSlotId = action.slotId || state.activeSlot
+      const slot = state.slots[targetSlotId]
+
+      return {
+        ...state,
+        slots: {
+          ...state.slots,
+          [targetSlotId]: {
+            ...slot,
+            isProcessing: action.isProcessing,
+          },
+        },
+      }
+    }
+
+    case 'SET_PROCESSED_RESULT': {
+      const targetSlotId = action.slotId || state.activeSlot
+      const slot = state.slots[targetSlotId]
+
+      let log = state.activityLog
+      if (action.logMessage) {
+        log = appendLog(log, action.logMessage, action.logType || 'success')
+      }
+
+      return {
+        ...state,
+        slots: {
+          ...state.slots,
+          [targetSlotId]: {
+            ...slot,
+            result: action.result,
+            isProcessing: false,
+          },
+        },
+        activityLog: log,
       }
     }
 

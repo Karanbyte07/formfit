@@ -1,4 +1,4 @@
-import type { Intent } from '../../types'
+import type { Intent, Targets } from '../../types'
 import {
   rotateCanvas,
   flipCanvas,
@@ -25,14 +25,22 @@ function createInitialCanvas(source: ImageBitmap): HTMLCanvasElement {
 }
 
 /**
- * Applies operations non-destructively in canonical order:
+ * Applies operations non-destructively in canonical order (section 6.4):
  * 1. Orientation (Rotate, Flip)
- * 2. Crop (Rect or Aspect)
- * 3. Resize (Pixels or cm)
- * 4. Color (Stubbed for future steps)
- * 5. Overlays
+ * 2. Crop (Manual crop or auto center-crop to target aspect)
+ * 3. Resize (Explicit resize op or target widthPx/heightPx)
+ * 4. Color (Grayscale, Brightness, White BG - stubs)
+ * 5. Overlays (Stubs)
+ *
+ * If both widthPx and heightPx targets are set:
+ * Center-crops the image to that aspect ratio, then resizes to exactly widthPx x heightPx.
+ * Never stretches or distorts.
  */
-export function applyPipeline(original: ImageBitmap, ops: Intent[]): PipelineResult {
+export function applyPipeline(
+  original: ImageBitmap,
+  ops: Intent[],
+  targets?: Targets
+): PipelineResult {
   if (!original) {
     const canvas = document.createElement('canvas')
     canvas.width = 0
@@ -42,10 +50,6 @@ export function applyPipeline(original: ImageBitmap, ops: Intent[]): PipelineRes
 
   // Start with a clean copy of the original
   let current: HTMLCanvasElement = createInitialCanvas(original)
-
-  if (!ops || ops.length === 0) {
-    return { canvas: current, width: current.width, height: current.height }
-  }
 
   // ── Step 1: Orientation (Rotate & Flip) ───────────────────────────
   let netRotation = 0
@@ -72,7 +76,7 @@ export function applyPipeline(original: ImageBitmap, ops: Intent[]): PipelineRes
   }
 
   // ── Step 2: Crop ──────────────────────────────────────────────────
-  // Latest crop intent takes precedence
+  // Latest explicit crop intent takes precedence
   const lastCrop = [...ops].reverse().find(op => op.kind === 'crop')
   if (lastCrop && lastCrop.kind === 'crop') {
     if (lastCrop.rect) {
@@ -85,10 +89,14 @@ export function applyPipeline(original: ImageBitmap, ops: Intent[]): PipelineRes
     } else if (lastCrop.aspect) {
       current = centerCropToAspect(current, lastCrop.aspect)
     }
+  } else if (targets?.widthPx && targets?.heightPx && targets.widthPx > 0 && targets.heightPx > 0) {
+    // If targets specify dimensions, center-crop to target aspect ratio first
+    const targetAspect = targets.widthPx / targets.heightPx
+    current = centerCropToAspect(current, targetAspect)
   }
 
   // ── Step 3: Resize ────────────────────────────────────────────────
-  // Latest resize intent takes precedence
+  // Latest explicit resize intent takes precedence
   const lastResize = [...ops].reverse().find(
     op => op.kind === 'resize_px' || op.kind === 'resize_cm'
   )
@@ -101,11 +109,13 @@ export function applyPipeline(original: ImageBitmap, ops: Intent[]): PipelineRes
       const targetH = Math.round((lastResize.heightCm / 2.54) * dpi)
       current = resizeTo(current, targetW, targetH)
     }
+  } else if (targets?.widthPx && targets?.heightPx && targets.widthPx > 0 && targets.heightPx > 0) {
+    // Resize to exact target width and height without distortion
+    current = resizeTo(current, targets.widthPx, targets.heightPx)
   }
 
   // ── Step 4: Color (Grayscale, Brightness, White BG) ───────────────
   // Stub for upcoming milestones per spec section 6.4
-  // TODO: Implement grayscale, brightness, contrast, white_bg, signature_clean
 
   return {
     canvas: current,

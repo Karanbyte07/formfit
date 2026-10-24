@@ -35,8 +35,8 @@ export default function TopBar() {
   }
 
   const handleDownload = () => {
-    const canvas = activeSlot.result?.canvas
-    if (!canvas) {
+    const blob = activeSlot.result?.blob
+    if (!blob) {
       dispatch({
         type: 'LOG_MESSAGE',
         message: 'No processed image available to download.',
@@ -46,32 +46,23 @@ export default function TopBar() {
     }
 
     try {
-      canvas.toBlob(blob => {
-        if (!blob) {
-          dispatch({
-            type: 'LOG_MESSAGE',
-            message: 'Failed to create download image file.',
-            logType: 'error',
-          })
-          return
-        }
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const ext = activeSlot.result?.format === 'png' ? 'png' : 'jpg'
+      const w = activeSlot.result?.measured?.width || activeSlot.result?.width || 200
+      const h = activeSlot.result?.measured?.height || activeSlot.result?.height || 230
+      a.download = `formfit-${activeSlot.id}-${w}x${h}.${ext}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
 
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        const baseName = (activeSlot.fileName || activeSlot.id).replace(/\.[^/.]+$/, '')
-        a.download = `${baseName}-formfit.jpg`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-
-        dispatch({
-          type: 'LOG_MESSAGE',
-          message: `Downloaded ${a.download} (${formatBytes(blob.size)})`,
-          logType: 'success',
-        })
-      }, 'image/jpeg', 0.92)
+      dispatch({
+        type: 'LOG_MESSAGE',
+        message: `Downloaded ${a.download} (${formatBytes(blob.size)})`,
+        logType: 'success',
+      })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       dispatch({
@@ -225,7 +216,7 @@ export default function TopBar() {
         <button
           id="btn-download"
           className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-          disabled={!hasFile}
+          disabled={!activeSlot.result?.blob}
           onClick={handleDownload}
         >
           <Download size={14} /> Download

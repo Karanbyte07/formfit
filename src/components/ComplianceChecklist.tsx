@@ -1,56 +1,146 @@
-import { CheckCircle2, XCircle, Clock } from 'lucide-react'
-import { useActiveSlot } from '../state/context'
-import { formatBytes } from '../state/reducer'
+import { CheckCircle2, XCircle } from 'lucide-react'
+import { useApp, useActiveSlot } from '../state/context'
+import { formatFileSize, calculateMaxAllowedBytes, kbToBytes } from '../lib/units'
 
 export default function ComplianceChecklist() {
+  const { state, dispatch } = useApp()
   const activeSlot = useActiveSlot()
-  const hasFile = Boolean(activeSlot.original)
+  const targets = activeSlot.targets || {}
+  const settings = state.settings
+  const kbBase = settings.kbBase
+  const result = activeSlot.result
+  const measured = result?.measured
 
-  // Measure dynamic compliance against standard targets (200x230 px, <= 50 KB, JPG)
-  const targetWidth = 200
-  const targetHeight = 230
-  const maxBytes = 50 * 1024
+  const hasImage = Boolean(activeSlot.original)
 
-  const currentW = activeSlot.result?.width || activeSlot.originalWidth || 0
-  const currentH = activeSlot.result?.height || activeSlot.originalHeight || 0
-  const currentSize = activeSlot.fileSize || 0
-  const isJpg = activeSlot.fileName ? /\.jpe?g$/i.test(activeSlot.fileName) : true
+  // 1. File Size Evaluation
+  const hasSizeTarget = targets.maxKb !== undefined || targets.minKb !== undefined
+  let sizeExpected = 'No target'
+  if (targets.minKb && targets.maxKb) {
+    sizeExpected = `${targets.minKb}–${targets.maxKb} KB`
+  } else if (targets.maxKb) {
+    sizeExpected = `≤ ${targets.maxKb} KB`
+  } else if (targets.minKb) {
+    sizeExpected = `≥ ${targets.minKb} KB`
+  }
 
-  const dimensionsPass = hasFile ? currentW === targetWidth && currentH === targetHeight : false
-  const sizePass = hasFile ? currentSize <= maxBytes : true
-  const formatPass = hasFile ? isJpg : true
+  const measuredBytes = measured?.bytes ?? (result?.blob?.size ?? 0)
+  const maxAllowedBytes = targets.maxKb
+    ? calculateMaxAllowedBytes(targets.maxKb, kbBase, settings.safetyMargin)
+    : undefined
+  const minAllowedBytes = targets.minKb ? kbToBytes(targets.minKb, kbBase) : undefined
 
-  const rows = [
+  let sizePass = true
+  let sizeFixSuggestion = ''
+  if (hasSizeTarget && hasImage) {
+    if (maxAllowedBytes && measuredBytes > maxAllowedBytes) {
+      sizePass = false
+      sizeFixSuggestion = 'Try a simpler background or a lower pixel size if the form allows.'
+    } else if (minAllowedBytes && measuredBytes < minAllowedBytes) {
+      sizePass = false
+      sizeFixSuggestion = 'File size is below minimum required KB; try a higher resolution or quality.'
+    }
+  }
+
+  // 2. Dimensions Evaluation
+  const hasDimTarget = targets.widthPx !== undefined && targets.heightPx !== undefined
+  const dimExpected = hasDimTarget ? `${targets.widthPx} × ${targets.heightPx} px` : 'No target'
+  const measuredWidth = measured?.width ?? (result?.width ?? activeSlot.originalWidth ?? 0)
+  const measuredHeight = measured?.height ?? (result?.height ?? activeSlot.originalHeight ?? 0)
+
+  let dimPass = true
+  let dimFixSuggestion = ''
+  if (hasDimTarget && hasImage) {
+    if (measuredWidth !== targets.widthPx || measuredHeight !== targets.heightPx) {
+      dimPass = false
+      dimFixSuggestion = 'Check dimensions; center-crop or resize to match exact target aspect ratio.'
+    }
+  }
+
+  // 3. Format Evaluation
+  const hasFormatTarget = targets.format !== undefined
+  const formatExpected = targets.format
+    ? targets.format === 'jpeg'
+      ? 'JPG'
+      : targets.format.toUpperCase()
+    : 'No target'
+
+  const measuredFormat = measured?.mime
+    ? measured.mime.includes('png')
+      ? 'PNG'
+      : 'JPG'
+    : result?.format
+    ? result.format === 'jpeg'
+      ? 'JPG'
+      : result.format.toUpperCase()
+    : activeSlot.fileName
+    ? /\.png$/i.test(activeSlot.fileName)
+      ? 'PNG'
+      : 'JPG'
+    : 'JPG'
+
+  let formatPass = true
+  let formatFixSuggestion = ''
+  if (hasFormatTarget && hasImage && targets.format) {
+    const targetFmtNormalized = targets.format === 'jpeg' ? 'JPG' : targets.format.toUpperCase()
+    if (measuredFormat !== targetFmtNormalized) {
+      formatPass = false
+      formatFixSuggestion = `Export or convert image to ${targetFmtNormalized} format.`
+    } else if (result?.status === 'png_kb_unsupported') {
+      formatPass = false
+      formatFixSuggestion = 'PNG does not support quality compression. Switch to JPG to meet KB limits.'
+    }
+  }
+
+  // Collect checked rows
+  const allRows = [
     {
       id: 'filesize',
       label: 'File size',
-      expected: '≤ 50 KB',
-      actual: hasFile ? formatBytes(currentSize) : undefined,
-      status: !hasFile ? 'pass' : sizePass ? 'pass' : 'fail',
+      hasTarget: hasSizeTarget,
+      expected: sizeExpected,
+      actual: hasImage && measuredBytes > 0 ? formatFileSize(measuredBytes, kbBase) : undefined,
+      pass: sizePass,
+      suggestion: sizeFixSuggestion,
     },
     {
       id: 'dimensions',
       label: 'Dimensions',
-      expected: `${targetWidth} × ${targetHeight} px`,
-      actual: hasFile ? `${currentW} × ${currentH} px` : undefined,
-      status: !hasFile ? 'fail' : dimensionsPass ? 'pass' : 'fail',
+      hasTarget: hasDimTarget,
+      expected: dimExpected,
+      actual: hasImage && measuredWidth > 0 ? `${measuredWidth} × ${measuredHeight} px` : undefined,
+      pass: dimPass,
+      suggestion: dimFixSuggestion,
     },
     {
       id: 'format',
       label: 'Format',
-      expected: 'JPG',
-      actual: hasFile ? (isJpg ? 'JPG' : 'PNG/WebP') : undefined,
-      status: !hasFile ? 'pass' : formatPass ? 'pass' : 'fail',
+      hasTarget: hasFormatTarget,
+      expected: formatExpected,
+      actual: hasImage ? measuredFormat : undefined,
+      pass: formatPass,
+      suggestion: formatFixSuggestion,
     },
   ]
 
-  const passCount = rows.filter(r => r.status === 'pass').length
+  const checkedRows = allRows.filter(r => r.hasTarget)
+  const passCount = checkedRows.filter(r => r.pass).length
+  const totalCount = checkedRows.length
+
+  const handleSwitchToJpg = () => {
+    dispatch({
+      type: 'SET_TARGETS',
+      slotId: activeSlot.id,
+      targets: { format: 'jpeg' },
+    })
+  }
 
   return (
     <div
       className="rounded-xl overflow-hidden shrink-0"
       style={{ border: '1px solid var(--color-border)' }}
     >
+      {/* Header */}
       <div
         className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide flex items-center justify-between"
         style={{
@@ -60,61 +150,86 @@ export default function ComplianceChecklist() {
         }}
       >
         <span>Compliance Check</span>
-        <span
-          className="text-[11px] font-medium normal-case px-2 py-0.5 rounded-full"
-          style={
-            passCount === rows.length
-              ? { background: '#F0FDF4', color: 'var(--color-success)' }
-              : { background: '#FEF3C7', color: 'var(--color-warning)' }
-          }
-        >
-          {passCount}/{rows.length} passing
-        </span>
-      </div>
-      <div style={{ background: 'var(--color-surface)' }}>
-        {rows.map((row, i) => (
-          <div
-            key={row.id}
-            className="flex items-center gap-3 px-3 py-2"
-            style={{
-              borderBottom: i < rows.length - 1 ? '1px solid var(--color-border)' : undefined,
-            }}
+        {totalCount === 0 ? (
+          <span className="text-[11px] font-normal normal-case px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+            No targets set yet
+          </span>
+        ) : (
+          <span
+            className="text-[11px] font-medium normal-case px-2 py-0.5 rounded-full"
+            style={
+              passCount === totalCount
+                ? { background: '#F0FDF4', color: 'var(--color-success)' }
+                : { background: '#FEF3C7', color: 'var(--color-warning)' }
+            }
           >
-            {row.status === 'pass' ? (
-              <CheckCircle2 size={16} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
-            ) : row.status === 'fail' ? (
-              <XCircle size={16} style={{ color: 'var(--color-error)', flexShrink: 0 }} />
-            ) : (
-              <Clock size={16} style={{ color: 'var(--color-muted)', flexShrink: 0 }} />
-            )}
-            <div className="flex-1 min-w-0">
-              <span className="text-xs font-medium block truncate" style={{ color: 'var(--color-text)' }}>
-                {row.label}
-              </span>
-              {row.actual && (
-                <span className="text-[10px] text-gray-500 block">
-                  Current: {row.actual}
-                </span>
+            {passCount}/{totalCount} passing
+          </span>
+        )}
+      </div>
+
+      {/* Rows */}
+      <div style={{ background: 'var(--color-surface)' }}>
+        {totalCount === 0 ? (
+          <div className="px-3 py-3 text-xs text-center" style={{ color: 'var(--color-muted)' }}>
+            No form targets specified for this slot. Set targets via command or the dev panel (?dev=1).
+          </div>
+        ) : (
+          checkedRows.map((row, i) => (
+            <div
+              key={row.id}
+              className="flex flex-col px-3 py-2"
+              style={{
+                borderBottom: i < checkedRows.length - 1 ? '1px solid var(--color-border)' : undefined,
+              }}
+            >
+              <div className="flex items-center gap-3">
+                {row.pass ? (
+                  <CheckCircle2 size={16} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
+                ) : (
+                  <XCircle size={16} style={{ color: 'var(--color-error)', flexShrink: 0 }} />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-medium truncate" style={{ color: 'var(--color-text)' }}>
+                      {row.label}
+                    </span>
+                    <span
+                      className="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
+                      style={
+                        row.pass
+                          ? { background: '#F0FDF4', color: 'var(--color-success)' }
+                          : { background: '#FEF2F2', color: 'var(--color-error)' }
+                      }
+                    >
+                      {row.expected}
+                    </span>
+                  </div>
+                  {row.actual && (
+                    <span className="text-[11px] text-gray-500 block mt-0.5">
+                      Measured: <span className="font-medium text-gray-700">{row.actual}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Fix suggestion on fail */}
+              {!row.pass && row.suggestion && (
+                <div className="mt-1.5 ml-7 text-[11px] text-amber-800 bg-amber-50 rounded px-2 py-1 border border-amber-200/70 flex items-start justify-between gap-1">
+                  <span>{row.suggestion}</span>
+                  {row.id === 'format' && result?.status === 'png_kb_unsupported' && (
+                    <button
+                      className="text-[10px] bg-teal-700 hover:bg-teal-800 text-white font-medium px-2 py-0.5 rounded shrink-0"
+                      onClick={handleSwitchToJpg}
+                    >
+                      Switch to JPG
+                    </button>
+                  )}
+                </div>
               )}
             </div>
-            <span
-              className="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
-              style={
-                row.status === 'pass'
-                  ? {
-                      background: '#F0FDF4',
-                      color: 'var(--color-success)',
-                    }
-                  : {
-                      background: '#FEF2F2',
-                      color: 'var(--color-error)',
-                    }
-              }
-            >
-              {row.expected}
-            </span>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   )

@@ -1,5 +1,12 @@
 export type Format = 'jpeg' | 'png' | 'webp'
 
+export type EncodeStatus =
+  | 'met'
+  | 'best_effort'
+  | 'below_min'
+  | 'png_kb_unsupported'
+  | 'failed'
+
 export type Intent =
   | { kind: 'resize_px'; width: number; height: number }
   | { kind: 'resize_cm'; widthCm: number; heightCm: number; dpi: number }
@@ -27,13 +34,25 @@ export interface Targets {
 export type SlotId = 'photo' | 'signature' | 'thumb'
 export type TabId = SlotId
 
+export interface MeasuredResult {
+  width: number
+  height: number
+  bytes: number
+  mime: string
+}
+
 export interface ProcessedResult {
+  ok: boolean
   canvas: HTMLCanvasElement
   width: number
   height: number
-  blob?: Blob
+  blob?: Blob | null
   kb?: number
   format?: Format
+  quality?: number
+  status: EncodeStatus
+  message?: string
+  measured?: MeasuredResult
 }
 
 export interface Slot {
@@ -48,6 +67,7 @@ export interface Slot {
   redoStack?: Intent[][]
   targets: Targets
   result?: ProcessedResult
+  isProcessing?: boolean
 }
 
 export interface ActivityLogEntry {
