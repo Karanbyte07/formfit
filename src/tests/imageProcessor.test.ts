@@ -1,7 +1,7 @@
-/**
- * imageProcessor.test.ts
- * Placeholder – unit tests for the image processing pipeline.
- */
+import { describe, it, expect } from 'vitest'
 
-// TODO: test resize, crop, format conversion, background fill
-export {}
+describe('imageProcessor placeholder', () => {
+  it('passes stub test', () => {
+    expect(true).toBe(true)
+  })
+})

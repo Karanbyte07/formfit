@@ -1,19 +1,87 @@
-import type { TabId } from '../types'
+import { useRef, type ChangeEvent } from 'react'
+import type { SlotId } from '../types'
+import { useApp, useActiveSlot } from '../state/context'
+import { useImageLoader } from '../lib/image/useImageLoader'
+import { formatBytes } from '../state/reducer'
+import { RotateCcw, Undo2, Redo2, Download, Upload } from 'lucide-react'
 
-interface TopBarProps {
-  activeTab: TabId
-  onTabChange: (tab: TabId) => void
-  fileName: string
-  fileSize: string
-}
-
-const tabs: { id: TabId; label: string }[] = [
+const tabs: { id: SlotId; label: string }[] = [
   { id: 'photo', label: 'Photo' },
   { id: 'signature', label: 'Signature' },
   { id: 'thumb', label: 'Thumb' },
 ]
 
-export default function TopBar({ activeTab, onTabChange, fileName, fileSize }: TopBarProps) {
+export default function TopBar() {
+  const { state, dispatch } = useApp()
+  const activeSlot = useActiveSlot()
+  const { loadFile } = useImageLoader()
+  const uploadInputRef = useRef<HTMLInputElement>(null)
+
+  const hasFile = Boolean(activeSlot.original && activeSlot.fileName)
+  const canUndo = activeSlot.history.length > 0
+  const canRedo = Boolean(activeSlot.redoStack && activeSlot.redoStack.length > 0)
+  const canReset = Boolean(activeSlot.original && activeSlot.ops.length > 0)
+
+  const handleUploadClick = () => {
+    uploadInputRef.current?.click()
+  }
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      loadFile(file)
+    }
+    e.target.value = ''
+  }
+
+  const handleDownload = () => {
+    const canvas = activeSlot.result?.canvas
+    if (!canvas) {
+      dispatch({
+        type: 'LOG_MESSAGE',
+        message: 'No processed image available to download.',
+        logType: 'warn',
+      })
+      return
+    }
+
+    try {
+      canvas.toBlob(blob => {
+        if (!blob) {
+          dispatch({
+            type: 'LOG_MESSAGE',
+            message: 'Failed to create download image file.',
+            logType: 'error',
+          })
+          return
+        }
+
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        const baseName = (activeSlot.fileName || activeSlot.id).replace(/\.[^/.]+$/, '')
+        a.download = `${baseName}-formfit.jpg`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+
+        dispatch({
+          type: 'LOG_MESSAGE',
+          message: `Downloaded ${a.download} (${formatBytes(blob.size)})`,
+          logType: 'success',
+        })
+      }, 'image/jpeg', 0.92)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      dispatch({
+        type: 'LOG_MESSAGE',
+        message: `Download failed: ${msg}`,
+        logType: 'error',
+      })
+    }
+  }
+
   return (
     <header
       style={{
@@ -23,6 +91,15 @@ export default function TopBar({ activeTab, onTabChange, fileName, fileSize }: T
       }}
       className="flex items-center gap-3 px-4 py-2 flex-wrap"
     >
+      <input
+        ref={uploadInputRef}
+        type="file"
+        id="topbar-file-input"
+        className="hidden"
+        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp,.heic,.heif"
+        onChange={handleFileChange}
+      />
+
       {/* Logo + brand */}
       <div className="flex items-center gap-2 mr-2 flex-shrink-0">
         <LogoMark />
@@ -40,32 +117,45 @@ export default function TopBar({ activeTab, onTabChange, fileName, fileSize }: T
         style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
         aria-label="Image type tabs"
       >
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            id={`tab-${tab.id}`}
-            onClick={() => onTabChange(tab.id)}
-            aria-selected={activeTab === tab.id}
-            className="px-3 py-1 rounded-md text-sm font-medium transition-all duration-150"
-            style={
-              activeTab === tab.id
-                ? {
-                    background: 'var(--color-accent)',
-                    color: '#fff',
-                    boxShadow: 'var(--shadow-sm)',
-                  }
-                : {
-                    color: 'var(--color-muted)',
-                  }
-            }
-          >
-            {tab.label}
-          </button>
-        ))}
+        {tabs.map(tab => {
+          const isSlotActive = state.activeSlot === tab.id
+          const slotHasImage = Boolean(state.slots[tab.id].original)
+
+          return (
+            <button
+              key={tab.id}
+              id={`tab-${tab.id}`}
+              onClick={() => dispatch({ type: 'SET_ACTIVE_SLOT', slotId: tab.id })}
+              aria-selected={isSlotActive}
+              className="px-3 py-1 rounded-md text-sm font-medium transition-all duration-150 flex items-center gap-1.5"
+              style={
+                isSlotActive
+                  ? {
+                      background: 'var(--color-accent)',
+                      color: '#fff',
+                      boxShadow: 'var(--shadow-sm)',
+                    }
+                  : {
+                      color: 'var(--color-muted)',
+                    }
+              }
+            >
+              <span>{tab.label}</span>
+              {slotHasImage && (
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{
+                    background: isSlotActive ? '#fff' : 'var(--color-accent)',
+                  }}
+                />
+              )}
+            </button>
+          )
+        })}
       </nav>
 
-      {/* File badge — hidden when no file is loaded (fileName is '') */}
-      {fileName && fileSize && (
+      {/* File badge — hidden when no file is loaded */}
+      {hasFile && activeSlot.fileName && (
         <div
           className="flex items-center gap-2 px-3 py-1 rounded-md text-xs font-medium flex-shrink-0"
           style={{
@@ -74,17 +164,17 @@ export default function TopBar({ activeTab, onTabChange, fileName, fileSize }: T
             color: 'var(--color-muted)',
           }}
         >
-          <span style={{ color: 'var(--color-text)' }} className="font-semibold">
-            {fileName}
+          <span style={{ color: 'var(--color-text)' }} className="font-semibold max-w-[150px] truncate">
+            {activeSlot.fileName}
           </span>
           <span
-            className="px-2 py-0.5 rounded-full text-xs"
+            className="px-2 py-0.5 rounded-full text-xs font-mono"
             style={{
               background: 'var(--color-accent-soft)',
               color: 'var(--color-accent)',
             }}
           >
-            {fileSize}
+            {formatBytes(activeSlot.fileSize || 0)}
           </span>
         </div>
       )}
@@ -94,14 +184,51 @@ export default function TopBar({ activeTab, onTabChange, fileName, fileSize }: T
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        <button id="btn-upload" className="btn-secondary text-sm py-1.5 px-3">
-          ↑ Upload
+        <button
+          id="btn-upload"
+          className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-1.5"
+          onClick={handleUploadClick}
+        >
+          <Upload size={14} /> Upload
         </button>
-        <button id="btn-undo" className="btn-secondary text-sm py-1.5 px-3">
-          ↩ Undo
+
+        <button
+          id="btn-undo"
+          className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={!canUndo}
+          onClick={() => dispatch({ type: 'UNDO' })}
+          title="Undo last change"
+        >
+          <Undo2 size={14} /> Undo
         </button>
-        <button id="btn-download" className="btn-primary text-sm py-1.5 px-3">
-          ↓ Download
+
+        <button
+          id="btn-redo"
+          className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={!canRedo}
+          onClick={() => dispatch({ type: 'REDO' })}
+          title="Redo change"
+        >
+          <Redo2 size={14} /> Redo
+        </button>
+
+        <button
+          id="btn-reset"
+          className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={!canReset}
+          onClick={() => dispatch({ type: 'RESET' })}
+          title="Reset to original image"
+        >
+          <RotateCcw size={14} /> Reset
+        </button>
+
+        <button
+          id="btn-download"
+          className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={!hasFile}
+          onClick={handleDownload}
+        >
+          <Download size={14} /> Download
         </button>
       </div>
     </header>
