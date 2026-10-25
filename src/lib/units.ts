@@ -1,3 +1,11 @@
+export function cmToPx(cm: number, dpi = 300): number {
+  return Math.round((cm / 2.54) * dpi)
+}
+
+export function mmToCm(mm: number): number {
+  return mm / 10
+}
+
 export function kbToBytes(kb: number, kbBase: 1024 | 1000 = 1024): number {
   return Math.round(kb * kbBase)
 }

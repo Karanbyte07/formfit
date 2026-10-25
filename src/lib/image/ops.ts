@@ -193,3 +193,85 @@ export function resizeTo(
 
   return currentSource as HTMLCanvasElement
 }
+
+// ── Color operations (spec § 6.4, § 8) ───────────────────────────────────────
+
+/**
+ * Applies a white background behind any transparent pixels.
+ * Also flattens for JPEG encoding.
+ */
+export function applyWhiteBackground(source: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = createCanvas(source.width, source.height)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return canvas
+  ctx.fillStyle = '#FFFFFF'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(source, 0, 0)
+  return canvas
+}
+
+/**
+ * Converts image to grayscale using luminance formula: 0.299R + 0.587G + 0.114B
+ */
+export function applyGrayscale(source: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = createCanvas(source.width, source.height)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return canvas
+  ctx.drawImage(source, 0, 0)
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const data = imageData.data
+  for (let i = 0; i < data.length; i += 4) {
+    const lum = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2])
+    data[i] = lum
+    data[i + 1] = lum
+    data[i + 2] = lum
+    // alpha unchanged
+  }
+  ctx.putImageData(imageData, 0, 0)
+  return canvas
+}
+
+/**
+ * Applies a brightness adjustment. Delta is added to each RGB channel, clamped 0-255.
+ * @param delta — positive = brighter, negative = darker
+ */
+export function applyBrightness(source: HTMLCanvasElement, delta: number): HTMLCanvasElement {
+  const canvas = createCanvas(source.width, source.height)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return canvas
+  ctx.drawImage(source, 0, 0)
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const data = imageData.data
+  for (let i = 0; i < data.length; i += 4) {
+    data[i]     = Math.max(0, Math.min(255, data[i]     + delta))
+    data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + delta))
+    data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + delta))
+    // alpha unchanged
+  }
+  ctx.putImageData(imageData, 0, 0)
+  return canvas
+}
+
+/**
+ * Applies a contrast adjustment using a linear stretch around 128.
+ * factor = 1.0 means no change; positive delta increases contrast, negative decreases.
+ * @param delta — units in [-100, 100] range; mapped to factor
+ */
+export function applyContrast(source: HTMLCanvasElement, delta: number): HTMLCanvasElement {
+  const canvas = createCanvas(source.width, source.height)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return canvas
+  ctx.drawImage(source, 0, 0)
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const data = imageData.data
+  // Map delta to a contrast factor: 0 = no change, positive = more contrast
+  const factor = (259 * (delta + 255)) / (255 * (259 - delta))
+  for (let i = 0; i < data.length; i += 4) {
+    data[i]     = Math.max(0, Math.min(255, factor * (data[i]     - 128) + 128))
+    data[i + 1] = Math.max(0, Math.min(255, factor * (data[i + 1] - 128) + 128))
+    data[i + 2] = Math.max(0, Math.min(255, factor * (data[i + 2] - 128) + 128))
+    // alpha unchanged
+  }
+  ctx.putImageData(imageData, 0, 0)
+  return canvas
+}

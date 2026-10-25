@@ -22,6 +22,9 @@ export type Intent =
   | { kind: 'crop'; rect?: { x: number; y: number; w: number; h: number }; aspect?: number }
   | { kind: 'signature_clean'; threshold: number }
   | { kind: 'overlay_text'; text: string }
+  | { kind: 'undo' }
+  | { kind: 'reset' }
+  | { kind: 'download' }
 
 export interface Targets {
   widthPx?: number

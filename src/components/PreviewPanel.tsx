@@ -1,11 +1,9 @@
-import { useRef, useEffect, useState, type DragEvent, type ChangeEvent } from 'react'
+import { useRef, useState, type DragEvent, type ChangeEvent } from 'react'
 import { ImageIcon, Sparkles, UploadCloud } from 'lucide-react'
 import { useApp, useActiveSlot } from '../state/context'
 import { useImageLoader } from '../lib/image/useImageLoader'
 import { usePipelineRunner } from '../lib/image/usePipelineRunner'
 import CompareSlider from './CompareSlider'
-import DevTargetsPanel from './DevTargetsPanel'
-
 export default function PreviewPanel() {
   const { state, dispatch } = useApp()
   const activeSlot = useActiveSlot()
@@ -16,15 +14,6 @@ export default function PreviewPanel() {
 
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Check for ?dev=1 query param
-  const [isDev, setIsDev] = useState(false)
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search)
-      setIsDev(params.get('dev') === '1')
-    }
-  }, [])
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -174,11 +163,6 @@ export default function PreviewPanel() {
             />
           </div>
         </div>
-      )}
-
-      {/* ── REMOVE BEFORE SUBMISSION: ?dev=1 Temporary Target & Dev Panel ── */}
-      {isDev && (
-        <DevTargetsPanel />
       )}
     </div>
   )

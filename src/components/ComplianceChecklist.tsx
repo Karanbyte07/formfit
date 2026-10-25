@@ -70,14 +70,14 @@ export default function ComplianceChecklist() {
       ? 'PNG'
       : 'JPG'
     : result?.format
-    ? result.format === 'jpeg'
-      ? 'JPG'
-      : result.format.toUpperCase()
-    : activeSlot.fileName
-    ? /\.png$/i.test(activeSlot.fileName)
-      ? 'PNG'
-      : 'JPG'
-    : 'JPG'
+      ? result.format === 'jpeg'
+        ? 'JPG'
+        : result.format.toUpperCase()
+      : activeSlot.fileName
+        ? /\.png$/i.test(activeSlot.fileName)
+          ? 'PNG'
+          : 'JPG'
+        : 'JPG'
 
   let formatPass = true
   let formatFixSuggestion = ''
@@ -172,7 +172,7 @@ export default function ComplianceChecklist() {
       <div style={{ background: 'var(--color-surface)' }}>
         {totalCount === 0 ? (
           <div className="px-3 py-3 text-xs text-center" style={{ color: 'var(--color-muted)' }}>
-            No form targets specified for this slot. Set targets via command or the dev panel (?dev=1).
+            No form targets set yet. Try saying or typing: &quot;50 KB se kam, 200x230 px&quot;.
           </div>
         ) : (
           checkedRows.map((row, i) => (

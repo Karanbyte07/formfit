@@ -9,6 +9,7 @@ import type {
   ActivityLogEntry,
 } from '../types'
 import { closeBitmap } from '../lib/image/load'
+import { cmToPx } from '../lib/units'
 
 export type AppAction =
   | {
@@ -39,6 +40,24 @@ export type AppAction =
       label?: string
     }
   | {
+      /** Merges new intents from parser into slot ops (chips as source of truth) */
+      type: 'APPLY_PARSED_INTENTS'
+      slotId?: SlotId
+      intents: Intent[]
+      label?: string
+    }
+  | {
+      type: 'UPDATE_CHIP'
+      slotId?: SlotId
+      index: number
+      intent: Intent
+    }
+  | {
+      type: 'REMOVE_CHIP'
+      slotId?: SlotId
+      index: number
+    }
+  | {
       type: 'UNDO'
       slotId?: SlotId
     }
@@ -48,6 +67,10 @@ export type AppAction =
     }
   | {
       type: 'RESET'
+      slotId?: SlotId
+    }
+  | {
+      type: 'RESET_SLOT'
       slotId?: SlotId
     }
   | {
@@ -104,19 +127,86 @@ function describeOps(ops: Intent[]): string {
   if (ops.length === 0) return 'No operations'
   const desc = ops.map(op => {
     switch (op.kind) {
-      case 'rotate':
-        return `Rotated ${op.degrees}°`
-      case 'flip':
-        return `Flipped ${op.axis === 'h' ? 'horizontal' : 'vertical'}`
-      case 'resize_px':
-        return `Resized to ${op.width}×${op.height} px`
-      case 'crop':
-        return op.aspect ? `Cropped to aspect ${op.aspect.toFixed(2)}` : 'Cropped'
-      default:
-        return op.kind
+      case 'rotate':      return `Rotated ${op.degrees}°`
+      case 'flip':        return `Flipped ${op.axis === 'h' ? 'horizontal' : 'vertical'}`
+      case 'resize_px':   return `Resized to ${op.width}×${op.height} px`
+      case 'resize_cm':   return `Resized to ${op.widthCm}×${op.heightCm} cm`
+      case 'max_kb':      return `Max ${op.kb} KB`
+      case 'min_kb':      return `Min ${op.kb} KB`
+      case 'format':      return `Format: ${op.format.toUpperCase()}`
+      case 'grayscale':   return 'Grayscale'
+      case 'white_bg':    return 'White background'
+      case 'brightness':  return `Brightness ${op.delta > 0 ? '+' : ''}${op.delta}`
+      case 'contrast':    return `Contrast ${op.delta > 0 ? '+' : ''}${op.delta}`
+      case 'crop':        return op.aspect ? `Cropped to aspect ${op.aspect.toFixed(2)}` : 'Cropped'
+      default:            return op.kind
     }
   })
   return desc.join(', ')
+}
+
+/** Singleton intent kinds — at most one per slot at a time */
+const SINGLETON_KINDS = new Set([
+  'resize_px', 'resize_cm', 'max_kb', 'min_kb', 'format', 'grayscale', 'white_bg',
+])
+
+function singletonKey(kind: string): string {
+  // resize_px and resize_cm share the same slot
+  if (kind === 'resize_px' || kind === 'resize_cm') return '__resize__'
+  return kind
+}
+
+/**
+ * Merges incoming intents into the existing ops array.
+ * - Singleton kinds replace existing ones of the same category.
+ * - Additive/transform kinds (rotate, flip, brightness, contrast) append/combine.
+ * Returns the new ops array.
+ */
+function mergeIntents(existing: Intent[], incoming: Intent[]): Intent[] {
+  let result = [...existing]
+  for (const intent of incoming) {
+    const key = singletonKey(intent.kind)
+    if (SINGLETON_KINDS.has(intent.kind)) {
+      // Remove existing op of the same singleton key
+      result = result.filter(op => singletonKey(op.kind) !== key)
+      result.push(intent)
+    } else {
+      // Additive: rotate, flip, brightness, contrast — just append
+      // (pipeline accumulates them)
+      result.push(intent)
+    }
+  }
+  return result
+}
+
+/**
+ * Derives Targets from the current ops list.
+ * This keeps chips as the single source of truth (spec § 4.1 M4).
+ */
+export function deriveTargets(ops: Intent[], dpi = 300): Targets {
+  const targets: Targets = {}
+  for (const op of ops) {
+    switch (op.kind) {
+      case 'resize_px':
+        targets.widthPx = op.width
+        targets.heightPx = op.height
+        break
+      case 'resize_cm':
+        targets.widthPx = cmToPx(op.widthCm, op.dpi ?? dpi)
+        targets.heightPx = cmToPx(op.heightCm, op.dpi ?? dpi)
+        break
+      case 'max_kb':
+        targets.maxKb = op.kb
+        break
+      case 'min_kb':
+        targets.minKb = op.kb
+        break
+      case 'format':
+        targets.format = op.format
+        break
+    }
+  }
+  return targets
 }
 
 export const INITIAL_STATE: AppState = {
@@ -217,6 +307,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ops: [],
         history: [],
         redoStack: [],
+        targets: {},
         result: undefined,
         isProcessing: true,
       }
@@ -259,6 +350,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         history: newHistory,
         redoStack: [],
         isProcessing: true,
+        targets: deriveTargets(newOps, state.settings.dpi),
       }
 
       const label = action.label || describeOps(action.ops)
@@ -270,6 +362,104 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           [targetSlotId]: updatedSlot,
         },
         activityLog: appendLog(state.activityLog, label, 'info'),
+      }
+    }
+
+    case 'APPLY_PARSED_INTENTS': {
+      const targetSlotId = action.slotId || state.activeSlot
+      const slot = state.slots[targetSlotId]
+
+      if (!slot.original) {
+        return {
+          ...state,
+          activityLog: appendLog(
+            state.activityLog,
+            'No image loaded. Drop or upload an image first.',
+            'warn'
+          ),
+        }
+      }
+
+      const newHistory = [...slot.history, slot.ops]
+      const newOps = mergeIntents(slot.ops, action.intents)
+
+      const updatedSlot: Slot = {
+        ...slot,
+        ops: newOps,
+        history: newHistory,
+        redoStack: [],
+        isProcessing: true,
+        targets: deriveTargets(newOps, state.settings.dpi),
+      }
+
+      const label = action.label || `Command applied: ${describeOps(action.intents)}`
+
+      return {
+        ...state,
+        slots: {
+          ...state.slots,
+          [targetSlotId]: updatedSlot,
+        },
+        activityLog: appendLog(state.activityLog, label, 'info'),
+      }
+    }
+
+    case 'UPDATE_CHIP': {
+      const targetSlotId = action.slotId || state.activeSlot
+      const slot = state.slots[targetSlotId]
+      const newHistory = [...slot.history, slot.ops]
+      const newOps = slot.ops.map((op, i) => (i === action.index ? action.intent : op))
+
+      const updatedSlot: Slot = {
+        ...slot,
+        ops: newOps,
+        history: newHistory,
+        redoStack: [],
+        isProcessing: true,
+        targets: deriveTargets(newOps, state.settings.dpi),
+      }
+
+      return {
+        ...state,
+        slots: {
+          ...state.slots,
+          [targetSlotId]: updatedSlot,
+        },
+        activityLog: appendLog(
+          state.activityLog,
+          `Edited chip: ${describeOps([action.intent])}`,
+          'info'
+        ),
+      }
+    }
+
+    case 'REMOVE_CHIP': {
+      const targetSlotId = action.slotId || state.activeSlot
+      const slot = state.slots[targetSlotId]
+      const removed = slot.ops[action.index]
+      const newHistory = [...slot.history, slot.ops]
+      const newOps = slot.ops.filter((_, i) => i !== action.index)
+
+      const updatedSlot: Slot = {
+        ...slot,
+        ops: newOps,
+        history: newHistory,
+        redoStack: [],
+        isProcessing: true,
+        targets: deriveTargets(newOps, state.settings.dpi),
+      }
+
+      return {
+        ...state,
+        slots: {
+          ...state.slots,
+          [targetSlotId]: updatedSlot,
+        },
+        activityLog: appendLog(
+          state.activityLog,
+          `Removed: ${removed ? describeOps([removed]) : 'chip'}`,
+          'info'
+        ),
       }
     }
 
@@ -291,6 +481,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         history: newHistory,
         redoStack: newRedoStack,
         isProcessing: true,
+        targets: deriveTargets(previousOps, state.settings.dpi),
       }
 
       return {
@@ -321,6 +512,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         history: newHistory,
         redoStack: newRedoStack,
         isProcessing: true,
+        targets: deriveTargets(nextOps, state.settings.dpi),
       }
 
       return {
@@ -333,7 +525,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
     }
 
-    case 'RESET': {
+    case 'RESET':
+    case 'RESET_SLOT': {
       const targetSlotId = action.slotId || state.activeSlot
       const slot = state.slots[targetSlotId]
 
@@ -349,6 +542,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         history: newHistory,
         redoStack: [],
         isProcessing: true,
+        targets: {},
       }
 
       return {

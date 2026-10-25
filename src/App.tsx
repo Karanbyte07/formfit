@@ -2,7 +2,7 @@ import { AppProvider } from './state/context'
 import TopBar from './components/TopBar'
 import PreviewPanel from './components/PreviewPanel'
 import RightPanel from './components/RightPanel'
-import CommandBox from './components/CommandBox'
+import CommandBar from './components/CommandBar'
 
 export default function App() {
   return (
@@ -57,7 +57,7 @@ export default function App() {
             boxShadow: '0 -4px 16px 0 rgba(20,33,31,0.08)',
           }}
         >
-          <CommandBox />
+          <CommandBar />
         </div>
       </div>
     </AppProvider>
