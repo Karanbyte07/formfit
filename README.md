@@ -7,7 +7,7 @@
 [![Tests Passing](https://img.shields.io/badge/Vitest-189%20Passing%20(100%25)-15803D?style=for-the-badge&logo=vitest)](https://github.com/Karanbyte07/formfit)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20Offline%20Canvas-0F766E?style=for-the-badge&logo=shield)](https://github.com/Karanbyte07/formfit)
 
-🔗 **Live App on Vercel:** [https://formfit1.vercel.app](https://formfit1.vercel.app)
+🔗 **Live App on Vercel:** [https://formfit-tool.vercel.app](https://formfit-tool.vercel.app)
 
 ---
 
@@ -15,7 +15,7 @@
 
 You can verify the entire pipeline in **10 seconds** without uploading your own images or needing a microphone:
 
-1. **Open the live link**: [https://formfit1.vercel.app](https://formfit1.vercel.app)
+1. **Open the live link**: [https://formfit-tool.vercel.app](https://formfit-tool.vercel.app)
 2. **Load Sample Image**: Click **"Try sample"** on the Photo tab.
 3. **Execute a Spoken Command**: Click any `"Try saying"` chip below the command box (e.g. `200 x 230 px, under 50 KB, JPG` or `50 kb se kam karo`).
    - Notice how the intent parses instantly, creates editable green chips, compresses the photo, and turns the **Compliance Checklist** green.
