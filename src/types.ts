@@ -21,7 +21,7 @@ export type Intent =
   | { kind: 'white_bg' }
   | { kind: 'crop'; rect?: { x: number; y: number; w: number; h: number }; aspect?: number }
   | { kind: 'signature_clean'; threshold: number }
-  | { kind: 'overlay_text'; text: string }
+  | { kind: 'overlay_text'; text: string; date?: string }
   | { kind: 'undo' }
   | { kind: 'reset' }
   | { kind: 'download' }
@@ -87,8 +87,12 @@ export interface AppSettings {
 }
 
 export interface Preset {
+  id: string
   name: string
   targets: Targets
+  ops?: Intent[]
+  slot?: SlotId
+  isDefault?: boolean
 }
 
 export interface AppState {

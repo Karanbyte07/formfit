@@ -277,6 +277,63 @@ const RULES: IntentRule[] = [
     ],
     extract: () => ({ kind: 'download' } as unknown as Intent),
   },
+
+  // ── signature_clean ───────────────────────────────────────────────────────
+  {
+    kind: 'signature_clean',
+    patterns: [
+      /\b(?:clean\s+signatures?|signatures?\s+saaf(?:\s*karo)?|signs?\s+clean(?:\s*karo)?|ink\s+dark(?:\s*karo)?|remove\s+paper\s+shadows?|contrast\s+signatures?)\b/i,
+      /\b(?:threshold|signature\s+cleaner)\b/i,
+      /\bthreshold\s*([0-9]{2,3})\b/i,
+    ],
+    extract: (m, clause) => {
+      const numMatch = m[1] || clause.match(/\bthreshold\s*([0-9]{2,3})\b/i)?.[1]
+      const th = numMatch ? parseInt(numMatch, 10) : 165
+      return { kind: 'signature_clean', threshold: Math.max(80, Math.min(240, th)) }
+    },
+  },
+
+  // ── overlay_text (Name & Date strip) ──────────────────────────────────────
+  {
+    kind: 'overlay_text',
+    patterns: [
+      /\b(?:add\s+name\s+and\s+date|name\s+and\s+date\s+strip|naam\s+aur\s+date(?:\s+lagao)?|bottom\s+strip(?:\s+add\s+karo)?|name\s+date\s+strip)\b/i,
+      /\b(?:name|naam)\s+strip\b/i,
+      /\bstrip\s+pe\s+naam\b/i,
+      /\b(?:name|naam)\s+([a-zA-Z]+).*(?:date|strip)\b/i,
+    ],
+    extract: (_m, clause) => {
+      const now = new Date()
+      const day = String(now.getDate()).padStart(2, '0')
+      const month = String(now.getMonth() + 1).padStart(2, '0')
+      const year = String(now.getFullYear())
+      const defaultDate = `${day}/${month}/${year}`
+
+      const nameMatch = clause.match(/\b(?:name|naam)\s+([A-Za-z]+)\b/i)
+      const dateMatch = clause.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/)
+
+      const rawText = nameMatch && !['and', 'aur', 'strip', 'date', 'lagao', 'karo'].includes(nameMatch[1].toLowerCase())
+        ? nameMatch[1]
+        : 'CANDIDATE NAME'
+      const text = rawText.charAt(0).toUpperCase() + rawText.slice(1)
+      const date = dateMatch ? dateMatch[1] : defaultDate
+      return { kind: 'overlay_text', text, date }
+    },
+  },
+
+  // ── crop ──────────────────────────────────────────────────────────────────
+  {
+    kind: 'crop',
+    patterns: [
+      /\b(?:crop(?:\s*karo)?|manual\s+crop|crop\s+to\s+passport\s+ratio)\b/i,
+    ],
+    extract: (_m, clause) => {
+      if (/passport/i.test(clause)) {
+        return { kind: 'crop', aspect: 3.5 / 4.5 }
+      }
+      return { kind: 'crop' }
+    },
+  },
 ]
 
 export { RULES }

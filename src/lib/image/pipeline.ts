@@ -10,6 +10,8 @@ import {
   applyGrayscale,
   applyBrightness,
   applyContrast,
+  applySignatureClean,
+  applyNameDateStrip,
 } from './ops'
 
 export interface PipelineResult {
@@ -143,7 +145,17 @@ export function applyPipeline(
     current = applyContrast(current, totalContrast)
   }
 
-  // ── Step 5: Overlays (stub — S6) ────────────────────────────────────
+  // signature_clean — threshold and darken ink (spec § 4.2 S3)
+  const sigCleanOp = ops.find(op => op.kind === 'signature_clean')
+  if (sigCleanOp && sigCleanOp.kind === 'signature_clean') {
+    current = applySignatureClean(current, sigCleanOp.threshold)
+  }
+
+  // ── Step 5: Overlays (spec § 4.2 S6) ────────────────────────────────
+  const overlayOp = ops.find(op => op.kind === 'overlay_text')
+  if (overlayOp && overlayOp.kind === 'overlay_text') {
+    current = applyNameDateStrip(current, overlayOp.text, overlayOp.date)
+  }
 
   return {
     canvas: current,

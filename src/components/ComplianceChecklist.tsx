@@ -1,4 +1,4 @@
-import { CheckCircle2, XCircle } from 'lucide-react'
+import { CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
 import { useApp, useActiveSlot } from '../state/context'
 import { formatFileSize, calculateMaxAllowedBytes, kbToBytes } from '../lib/units'
 
@@ -135,6 +135,11 @@ export default function ComplianceChecklist() {
     })
   }
 
+  const isUpscaled =
+    Boolean(hasImage && activeSlot.originalWidth && activeSlot.originalHeight) &&
+    ((Boolean(targets.widthPx) && (targets.widthPx || 0) > (activeSlot.originalWidth || 0) * 1.5) ||
+     (Boolean(targets.heightPx) && (targets.heightPx || 0) > (activeSlot.originalHeight || 0) * 1.5))
+
   return (
     <div
       className="rounded-xl overflow-hidden shrink-0"
@@ -231,6 +236,16 @@ export default function ComplianceChecklist() {
           ))
         )}
       </div>
+
+      {/* Gentle upscale advisory notice */}
+      {isUpscaled && (
+        <div className="px-3 py-2 text-[11px] text-amber-800 bg-amber-50/70 border-t border-amber-200/60 flex items-start gap-1.5">
+          <AlertTriangle size={13} className="shrink-0 mt-0.5 text-amber-600" />
+          <span>
+            Target is &gt;1.5× original image size ({activeSlot.originalWidth}×{activeSlot.originalHeight} px). Upscaling a small image may appear soft or blurry.
+          </span>
+        </div>
+      )}
     </div>
   )
 }

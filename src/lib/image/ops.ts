@@ -70,10 +70,17 @@ export function calculateStepDownDimensions(
 // Canvas-based image operations
 
 function createCanvas(width: number, height: number): HTMLCanvasElement {
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.round(width))
-  canvas.height = Math.max(1, Math.round(height))
-  return canvas
+  if (typeof document !== 'undefined' && document.createElement) {
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(width))
+    canvas.height = Math.max(1, Math.round(height))
+    return canvas
+  }
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+    getContext: () => null,
+  } as unknown as HTMLCanvasElement
 }
 
 export function rotateCanvas(
@@ -273,5 +280,99 @@ export function applyContrast(source: HTMLCanvasElement, delta: number): HTMLCan
     // alpha unchanged
   }
   ctx.putImageData(imageData, 0, 0)
+  return canvas
+}
+
+/**
+ * Signature cleaner (spec § 4.2 S3, § 8)
+ * Converts to grayscale, pushes background above threshold to pure white,
+ * and darkens ink below threshold for crisp, professional scans.
+ */
+export function applySignatureClean(
+  source: HTMLCanvasElement,
+  threshold = 165
+): HTMLCanvasElement {
+  const canvas = createCanvas(source.width, source.height)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return canvas
+  ctx.drawImage(source, 0, 0)
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const data = imageData.data
+  const th = Math.max(60, Math.min(240, threshold))
+
+  for (let i = 0; i < data.length; i += 4) {
+    const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+    if (lum >= th) {
+      // Paper background -> pure white
+      data[i] = 255
+      data[i + 1] = 255
+      data[i + 2] = 255
+    } else {
+      // Ink -> contrast boost and darkening
+      const ratio = lum / th
+      const darkVal = Math.round(ratio * ratio * 70)
+      data[i] = darkVal
+      data[i + 1] = darkVal
+      data[i + 2] = darkVal
+    }
+    data[i + 3] = 255 // Opaque white background
+  }
+  ctx.putImageData(imageData, 0, 0)
+  return canvas
+}
+
+/**
+ * Name & Date strip under photo (spec § 4.2 S6)
+ * Adds a clean white banner at the bottom ~14% with candidate name and date.
+ */
+export function applyNameDateStrip(
+  source: HTMLCanvasElement,
+  nameText: string,
+  dateText?: string
+): HTMLCanvasElement {
+  const canvas = createCanvas(source.width, source.height)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return canvas
+  ctx.drawImage(source, 0, 0)
+
+  const stripH = Math.max(28, Math.round(source.height * 0.14))
+  const stripY = source.height - stripH
+
+  // White background banner
+  ctx.fillStyle = '#FFFFFF'
+  ctx.fillRect(0, stripY, source.width, stripH)
+
+  // Border line at top of strip
+  ctx.strokeStyle = '#D1D5DB'
+  ctx.lineWidth = Math.max(1, Math.round(source.height * 0.003))
+  ctx.beginPath()
+  ctx.moveTo(0, stripY)
+  ctx.lineTo(source.width, stripY)
+  ctx.stroke()
+
+  ctx.fillStyle = '#111827'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+
+  const trimmedName = (nameText || '').trim().toUpperCase()
+  const trimmedDate = (dateText || '').trim()
+
+  if (trimmedName && trimmedDate) {
+    // 2-line layout: Name on top line, Date on bottom line
+    const nameFontSize = Math.max(10, Math.round(stripH * 0.32))
+    ctx.font = `bold ${nameFontSize}px system-ui, -apple-system, sans-serif`
+    ctx.fillText(trimmedName, source.width / 2, stripY + stripH * 0.32)
+
+    const dateFontSize = Math.max(9, Math.round(stripH * 0.28))
+    ctx.font = `${dateFontSize}px system-ui, -apple-system, sans-serif`
+    ctx.fillText(trimmedDate, source.width / 2, stripY + stripH * 0.72)
+  } else {
+    // 1-line centered layout
+    const textToShow = trimmedName || trimmedDate || 'NAME & DATE'
+    const fontSize = Math.max(11, Math.round(stripH * 0.44))
+    ctx.font = `bold ${fontSize}px system-ui, -apple-system, sans-serif`
+    ctx.fillText(textToShow, source.width / 2, stripY + stripH * 0.5)
+  }
+
   return canvas
 }

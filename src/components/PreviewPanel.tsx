@@ -1,9 +1,10 @@
-import { useRef, useState, type DragEvent, type ChangeEvent } from 'react'
-import { ImageIcon, Sparkles, UploadCloud, X, CheckCircle2 } from 'lucide-react'
+import { useRef, useState, useEffect, type DragEvent, type ChangeEvent } from 'react'
+import { ImageIcon, Sparkles, UploadCloud, X, CheckCircle2, Crop } from 'lucide-react'
 import { useApp, useActiveSlot } from '../state/context'
 import { useImageLoader } from '../lib/image/useImageLoader'
 import { usePipelineRunner } from '../lib/image/usePipelineRunner'
 import CompareSlider from './CompareSlider'
+import CropBox from './CropBox'
 import type { SlotId } from '../types'
 
 export default function PreviewPanel() {
@@ -95,6 +96,31 @@ export default function PreviewPanel() {
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     handleFileList(e.target.files)
     e.target.value = ''
+  }
+
+  const [isCropping, setIsCropping] = useState(false)
+
+  // Listen for crop commands without rect from parser (e.g. "crop karo")
+  useEffect(() => {
+    const lastOp = activeSlot.ops[activeSlot.ops.length - 1]
+    if (lastOp?.kind === 'crop' && !lastOp.rect && activeSlot.original) {
+      setIsCropping(true)
+    }
+  }, [activeSlot.ops, activeSlot.original])
+
+  const targetAspect =
+    activeSlot.targets.widthPx && activeSlot.targets.heightPx
+      ? activeSlot.targets.widthPx / activeSlot.targets.heightPx
+      : undefined
+
+  const handleApplyCrop = (rect: { x: number; y: number; w: number; h: number }) => {
+    dispatch({
+      type: 'APPLY_OPS',
+      slotId: activeSlot.id,
+      ops: [{ kind: 'crop', rect }],
+      label: `Crop (${rect.w}×${rect.h} px)`,
+    })
+    setIsCropping(false)
   }
 
   const triggerBrowse = () => {
@@ -201,7 +227,7 @@ export default function PreviewPanel() {
         </div>
       )}
 
-      {/* ── Loaded State: Before / After Slider ─────────────────────── */}
+      {/* ── Loaded State: Before / After Slider or CropBox ─────────────────── */}
       {isLoaded && (
         <div className="flex-1 flex flex-col min-h-0 gap-3">
           {/* Controls Bar */}
@@ -215,6 +241,15 @@ export default function PreviewPanel() {
               </span>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                id="btn-crop"
+                className="btn-secondary text-xs py-1 px-3 flex items-center gap-1"
+                style={isCropping ? { background: 'var(--color-accent)', color: '#fff' } : undefined}
+                onClick={() => setIsCropping(!isCropping)}
+                title="Manual crop box"
+              >
+                <Crop size={13} /> {isCropping ? 'Cancel Crop' : 'Crop'}
+              </button>
               <button
                 className="btn-secondary text-xs py-1 px-3"
                 onClick={triggerBrowse}
@@ -230,18 +265,29 @@ export default function PreviewPanel() {
             </div>
           </div>
 
-          {/* Before/After Comparison Slider */}
-          <div className="flex-1 min-h-[320px] flex flex-col">
-            <CompareSlider
-              originalBitmap={activeSlot.original}
-              originalSize={activeSlot.fileSize}
-              processedCanvas={activeSlot.result?.canvas}
-              processedBlob={activeSlot.result?.blob}
-              newBytes={activeSlot.result?.measured?.bytes || activeSlot.result?.blob?.size || 0}
-              isProcessing={activeSlot.isProcessing}
-              kbBase={state.settings.kbBase}
-            />
-          </div>
+          {/* Before/After Comparison Slider or Interactive Crop Box */}
+          {isCropping && activeSlot.original ? (
+            <div className="flex-1 min-h-[320px] flex flex-col">
+              <CropBox
+                imageBitmap={activeSlot.original}
+                targetAspect={targetAspect}
+                onApplyCrop={handleApplyCrop}
+                onCancel={() => setIsCropping(false)}
+              />
+            </div>
+          ) : (
+            <div className="flex-1 min-h-[320px] flex flex-col">
+              <CompareSlider
+                originalBitmap={activeSlot.original}
+                originalSize={activeSlot.fileSize}
+                processedCanvas={activeSlot.result?.canvas}
+                processedBlob={activeSlot.result?.blob}
+                newBytes={activeSlot.result?.measured?.bytes || activeSlot.result?.blob?.size || 0}
+                isProcessing={activeSlot.isProcessing}
+                kbBase={state.settings.kbBase}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

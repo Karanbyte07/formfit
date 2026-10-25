@@ -5,11 +5,18 @@ import type {
   Intent,
   Targets,
   AppSettings,
+  Preset,
   ProcessedResult,
   ActivityLogEntry,
 } from '../types'
 import { closeBitmap } from '../lib/image/load'
 import { cmToPx } from '../lib/units'
+import {
+  loadStoredPresets,
+  saveStoredPresets,
+  loadStoredSettings,
+  saveStoredSettings,
+} from '../lib/storage'
 
 export type AppAction =
   | {
@@ -19,6 +26,19 @@ export type AppAction =
       fileSize: number
       bitmap: ImageBitmap
       wasDownscaled?: boolean
+    }
+  | {
+      type: 'APPLY_PRESET'
+      preset: Preset
+      slotId?: SlotId
+    }
+  | {
+      type: 'SAVE_PRESET'
+      preset: Preset
+    }
+  | {
+      type: 'DELETE_PRESET'
+      presetId: string
     }
   | {
       type: 'SET_ACTIVE_SLOT'
@@ -132,19 +152,21 @@ function describeOps(ops: Intent[]): string {
   if (ops.length === 0) return 'No operations'
   const desc = ops.map(op => {
     switch (op.kind) {
-      case 'rotate':      return `Rotated ${op.degrees}°`
-      case 'flip':        return `Flipped ${op.axis === 'h' ? 'horizontal' : 'vertical'}`
-      case 'resize_px':   return `Resized to ${op.width}×${op.height} px`
-      case 'resize_cm':   return `Resized to ${op.widthCm}×${op.heightCm} cm`
-      case 'max_kb':      return `Max ${op.kb} KB`
-      case 'min_kb':      return `Min ${op.kb} KB`
-      case 'format':      return `Format: ${op.format.toUpperCase()}`
-      case 'grayscale':   return 'Grayscale'
-      case 'white_bg':    return 'White background'
-      case 'brightness':  return `Brightness ${op.delta > 0 ? '+' : ''}${op.delta}`
-      case 'contrast':    return `Contrast ${op.delta > 0 ? '+' : ''}${op.delta}`
-      case 'crop':        return op.aspect ? `Cropped to aspect ${op.aspect.toFixed(2)}` : 'Cropped'
-      default:            return op.kind
+      case 'rotate':          return `Rotated ${op.degrees}°`
+      case 'flip':            return `Flipped ${op.axis === 'h' ? 'horizontal' : 'vertical'}`
+      case 'resize_px':       return `Resized to ${op.width}×${op.height} px`
+      case 'resize_cm':       return `Resized to ${op.widthCm}×${op.heightCm} cm`
+      case 'max_kb':          return `Max ${op.kb} KB`
+      case 'min_kb':          return `Min ${op.kb} KB`
+      case 'format':          return `Format: ${op.format.toUpperCase()}`
+      case 'grayscale':       return 'Grayscale'
+      case 'white_bg':        return 'White background'
+      case 'brightness':      return `Brightness ${op.delta > 0 ? '+' : ''}${op.delta}`
+      case 'contrast':        return `Contrast ${op.delta > 0 ? '+' : ''}${op.delta}`
+      case 'crop':            return op.aspect ? `Cropped to aspect ${op.aspect.toFixed(2)}` : 'Cropped'
+      case 'signature_clean': return `Clean ink (thresh ${op.threshold ?? 165})`
+      case 'overlay_text':    return `Name & Date (${op.text}${op.date ? ', ' + op.date : ''})`
+      default:                return (op as { kind: string }).kind
     }
   })
   return desc.join(', ')
@@ -152,7 +174,15 @@ function describeOps(ops: Intent[]): string {
 
 /** Singleton intent kinds — at most one per slot at a time */
 const SINGLETON_KINDS = new Set([
-  'resize_px', 'resize_cm', 'max_kb', 'min_kb', 'format', 'grayscale', 'white_bg',
+  'resize_px',
+  'resize_cm',
+  'max_kb',
+  'min_kb',
+  'format',
+  'grayscale',
+  'white_bg',
+  'signature_clean',
+  'overlay_text',
 ])
 
 function singletonKey(kind: string): string {
@@ -214,6 +244,13 @@ export function deriveTargets(ops: Intent[], dpi = 300): Targets {
   return targets
 }
 
+const initialSettings: AppSettings = {
+  kbBase: 1024,
+  dpi: 300,
+  safetyMargin: 0.97,
+  ...(loadStoredSettings() || {}),
+}
+
 export const INITIAL_STATE: AppState = {
   slots: {
     photo: createEmptySlot('photo'),
@@ -221,12 +258,8 @@ export const INITIAL_STATE: AppState = {
     thumb: createEmptySlot('thumb'),
   },
   activeSlot: 'photo',
-  settings: {
-    kbBase: 1024,
-    dpi: 300,
-    safetyMargin: 0.97,
-  },
-  presets: [],
+  settings: initialSettings,
+  presets: loadStoredPresets(),
   activityLog: [
     {
       id: 'init-1',
@@ -263,12 +296,89 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'SET_SETTINGS': {
+      const updatedSettings = {
+        ...state.settings,
+        ...action.settings,
+      }
+      saveStoredSettings(updatedSettings)
       return {
         ...state,
-        settings: {
-          ...state.settings,
-          ...action.settings,
+        settings: updatedSettings,
+      }
+    }
+
+    case 'APPLY_PRESET': {
+      const targetSlotId = action.slotId || action.preset.slot || state.activeSlot
+      const slot = state.slots[targetSlotId]
+
+      // Build intents from preset targets and ops
+      const presetIntents: Intent[] = []
+      if (action.preset.ops && action.preset.ops.length > 0) {
+        presetIntents.push(...action.preset.ops)
+      } else {
+        const t = action.preset.targets
+        if (t.widthPx && t.heightPx) {
+          presetIntents.push({ kind: 'resize_px', width: t.widthPx, height: t.heightPx })
+        }
+        if (t.minKb) presetIntents.push({ kind: 'min_kb', kb: t.minKb })
+        if (t.maxKb) presetIntents.push({ kind: 'max_kb', kb: t.maxKb })
+        if (t.format) presetIntents.push({ kind: 'format', format: t.format })
+      }
+
+      // Merge with existing slot ops
+      const newOps = mergeIntents(slot.ops, presetIntents)
+      const newHistory = [...slot.history, slot.ops]
+      const derived = deriveTargets(newOps, state.settings.dpi)
+
+      const updatedSlot: Slot = {
+        ...slot,
+        ops: newOps,
+        targets: { ...slot.targets, ...action.preset.targets, ...derived },
+        history: newHistory,
+        redoStack: [],
+        isProcessing: slot.original !== undefined,
+      }
+
+      return {
+        ...state,
+        activeSlot: targetSlotId,
+        slots: {
+          ...state.slots,
+          [targetSlotId]: updatedSlot,
         },
+        activityLog: appendLog(
+          state.activityLog,
+          `Applied preset: "${action.preset.name}" to ${targetSlotId}`,
+          'success'
+        ),
+      }
+    }
+
+    case 'SAVE_PRESET': {
+      const updatedPresets = [...state.presets, action.preset]
+      saveStoredPresets(updatedPresets)
+      return {
+        ...state,
+        presets: updatedPresets,
+        activityLog: appendLog(
+          state.activityLog,
+          `Saved preset: "${action.preset.name}"`,
+          'success'
+        ),
+      }
+    }
+
+    case 'DELETE_PRESET': {
+      const updatedPresets = state.presets.filter(p => p.id !== action.presetId)
+      saveStoredPresets(updatedPresets)
+      return {
+        ...state,
+        presets: updatedPresets,
+        activityLog: appendLog(
+          state.activityLog,
+          'Deleted preset',
+          'info'
+        ),
       }
     }
 
@@ -319,7 +429,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
 
       const logMsg = action.wasDownscaled
-        ? `Loaded ${action.fileName} (${formatBytes(action.fileSize)}) · Downscaled to 4000px working copy`
+        ? `Loaded ${action.fileName} · Large photo optimized to a 4000 px working copy for smooth editing.`
         : `Loaded ${action.fileName} (${formatBytes(action.fileSize)}) · ${action.bitmap.width}×${action.bitmap.height} px`
 
       return {

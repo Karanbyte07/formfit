@@ -4,6 +4,7 @@ import CommandBar from './CommandBar'
 import ExampleChips from './ExampleChips'
 import PrivacyBadge from './PrivacyBadge'
 import UnderstoodChips from './UnderstoodChips'
+import PresetsPanel from './PresetsPanel'
 import ComplianceChecklist from './ComplianceChecklist'
 import ActivityLog from './ActivityLog'
 import { useApp } from '../state/context'
@@ -133,6 +134,9 @@ export default function RightPanel() {
 
       {/* Divider */}
       <hr className="shrink-0 my-0.5" style={{ borderColor: 'var(--color-border)' }} />
+
+      {/* Presets panel */}
+      <PresetsPanel />
 
       {/* (e) Understood chips */}
       <UnderstoodChips />

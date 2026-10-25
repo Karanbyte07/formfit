@@ -19,24 +19,27 @@ export interface ParseOptions {
 }
 
 /** Clause splitters: commas, semicolons, unambiguous dots, conjunctions */
-const CLAUSE_SPLITTERS = /,|;|(?<!\d)\.(?!\d)|\s+(?:and|aur|then|phir|also|aur\s+fir|fir)\s+/
+const CLAUSE_SPLITTERS = /,|;|(?<!\d)\.(?!\d)|(?<!\b(?:name|naam))\s+(?:and|aur|then|phir|also|aur\s+fir|fir)\s+(?!\bdate\b)/
 
 /** Singleton intent kinds — later wins */
 const SINGLETON_KINDS = new Set([
   'resize_px', 'resize_cm', 'max_kb', 'min_kb', 'format', 'grayscale', 'white_bg',
+  'signature_clean', 'overlay_text',
 ])
 
 /** Friendly description of an intent for conflict warnings */
 function describeIntent(intent: Intent): string {
   switch (intent.kind) {
-    case 'resize_px': return `${intent.width}×${intent.height} px`
-    case 'resize_cm': return `${intent.widthCm}×${intent.heightCm} cm`
-    case 'max_kb':    return `${intent.kb} KB max`
-    case 'min_kb':    return `${intent.kb} KB min`
-    case 'format':    return intent.format.toUpperCase()
-    case 'grayscale': return 'grayscale'
-    case 'white_bg':  return 'white background'
-    default:          return intent.kind
+    case 'resize_px':       return `${intent.width}×${intent.height} px`
+    case 'resize_cm':       return `${intent.widthCm}×${intent.heightCm} cm`
+    case 'max_kb':          return `${intent.kb} KB max`
+    case 'min_kb':          return `${intent.kb} KB min`
+    case 'format':          return intent.format.toUpperCase()
+    case 'grayscale':       return 'grayscale'
+    case 'white_bg':        return 'white background'
+    case 'signature_clean': return `clean signature (th: ${intent.threshold})`
+    case 'overlay_text':    return 'name & date strip'
+    default:                return intent.kind
   }
 }
 
