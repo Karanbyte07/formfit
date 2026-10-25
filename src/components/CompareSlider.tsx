@@ -64,13 +64,19 @@ export default function CompareSlider({
 
     if (processedBlob) {
       url = URL.createObjectURL(processedBlob)
-      setProcessedUrl(url)
+      setProcessedUrl(prev => {
+        if (prev) URL.revokeObjectURL(prev)
+        return url
+      })
     } else if (processedCanvas) {
       let cancelled = false
       processedCanvas.toBlob(blob => {
         if (!blob || cancelled) return
         url = URL.createObjectURL(blob)
-        setProcessedUrl(url)
+        setProcessedUrl(prev => {
+          if (prev) URL.revokeObjectURL(prev)
+          return url
+        })
       }, 'image/jpeg', 0.95)
 
       return () => {
@@ -78,7 +84,10 @@ export default function CompareSlider({
         if (url) URL.revokeObjectURL(url)
       }
     } else {
-      setProcessedUrl(null)
+      setProcessedUrl(prev => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
     }
 
     return () => {

@@ -5,6 +5,7 @@ import { useImageLoader } from '../lib/image/useImageLoader'
 import { usePipelineRunner } from '../lib/image/usePipelineRunner'
 import CompareSlider from './CompareSlider'
 import CropBox from './CropBox'
+import Footer from './Footer'
 import type { SlotId } from '../types'
 
 export default function PreviewPanel() {
@@ -290,6 +291,9 @@ export default function PreviewPanel() {
           )}
         </div>
       )}
+
+      {/* Compact footer matching warm-paper theme */}
+      <Footer />
     </div>
   )
 }
