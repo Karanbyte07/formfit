@@ -195,8 +195,8 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
             id="command-input"
             ref={textareaRef}
             rows={2}
-            className="flex-1 w-full bg-transparent resize-none text-sm outline-none leading-snug"
-            style={{ color: 'var(--color-text)', minHeight: '3rem' }}
+            className="flex-1 w-full bg-transparent border-0 outline-none focus:outline-none focus:ring-0 shadow-none resize-none text-sm leading-snug"
+            style={{ color: 'var(--color-text)', minHeight: '3rem', border: 'none', outline: 'none', boxShadow: 'none' }}
             placeholder={PLACEHOLDERS[placeholderIdx]}
             aria-label="Command input — type or dictate your requirements"
             value={value}

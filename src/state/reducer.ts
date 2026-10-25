@@ -47,6 +47,11 @@ export type AppAction =
       label?: string
     }
   | {
+      /** Applies notice extractor proposals across slots */
+      type: 'APPLY_NOTICE_PROPOSALS'
+      proposals: { slot: SlotId; intents: Intent[] }[]
+    }
+  | {
       type: 'UPDATE_CHIP'
       slotId?: SlotId
       index: number
@@ -297,6 +302,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         closeBitmap(prevSlot.original)
       }
 
+      const hasPreExistingOps = prevSlot.ops.length > 0
       const updatedSlot: Slot = {
         ...prevSlot,
         fileName: action.fileName,
@@ -304,10 +310,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         original: action.bitmap,
         originalWidth: action.bitmap.width,
         originalHeight: action.bitmap.height,
-        ops: [],
-        history: [],
-        redoStack: [],
-        targets: {},
+        ops: prevSlot.ops,
+        history: prevSlot.history,
+        redoStack: prevSlot.redoStack,
+        targets: hasPreExistingOps ? prevSlot.targets : {},
         result: undefined,
         isProcessing: true,
       }
@@ -369,26 +375,16 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const targetSlotId = action.slotId || state.activeSlot
       const slot = state.slots[targetSlotId]
 
-      if (!slot.original) {
-        return {
-          ...state,
-          activityLog: appendLog(
-            state.activityLog,
-            'No image loaded. Drop or upload an image first.',
-            'warn'
-          ),
-        }
-      }
-
       const newHistory = [...slot.history, slot.ops]
       const newOps = mergeIntents(slot.ops, action.intents)
+      const hasImage = Boolean(slot.original)
 
       const updatedSlot: Slot = {
         ...slot,
         ops: newOps,
         history: newHistory,
         redoStack: [],
-        isProcessing: true,
+        isProcessing: hasImage,
         targets: deriveTargets(newOps, state.settings.dpi),
       }
 
@@ -401,6 +397,42 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           [targetSlotId]: updatedSlot,
         },
         activityLog: appendLog(state.activityLog, label, 'info'),
+      }
+    }
+
+    case 'APPLY_NOTICE_PROPOSALS': {
+      const updatedSlots = { ...state.slots }
+      const logMessages: string[] = []
+
+      for (const prop of action.proposals) {
+        const slot = updatedSlots[prop.slot]
+        const newHistory = [...slot.history, slot.ops]
+        const newOps = mergeIntents(slot.ops, prop.intents)
+        const newTargets = deriveTargets(newOps, state.settings.dpi)
+
+        updatedSlots[prop.slot] = {
+          ...slot,
+          ops: newOps,
+          targets: newTargets,
+          history: newHistory,
+          redoStack: [],
+          isProcessing: Boolean(slot.original),
+        }
+
+        logMessages.push(
+          `Notice rules applied to ${prop.slot.toUpperCase()}: ${describeOps(prop.intents)}`
+        )
+      }
+
+      let updatedLog = state.activityLog
+      for (const msg of logMessages) {
+        updatedLog = appendLog(updatedLog, msg, 'success')
+      }
+
+      return {
+        ...state,
+        slots: updatedSlots,
+        activityLog: updatedLog,
       }
     }
 
