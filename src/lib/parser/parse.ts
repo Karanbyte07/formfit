@@ -19,7 +19,7 @@ export interface ParseOptions {
 }
 
 /** Clause splitters: commas, semicolons, unambiguous dots, conjunctions */
-const CLAUSE_SPLITTERS = /,|;|(?<!\d)\.(?!\d)|(?<!\b(?:name|naam))\s+(?:and|aur|then|phir|also|aur\s+fir|fir)\s+(?!\bdate\b)/
+const CLAUSE_SPLITTERS = /,|;|(?<!\d)\.(?!\d)|(?<!\b(?:name|naam))\s+(?:and|aur|then|phir|also|aur\s+fir|fir|plus|ke\s+saath|saath\s+me|saath\s+mein)\s+(?!\bdate\b)/
 
 /** Singleton intent kinds — later wins */
 const SINGLETON_KINDS = new Set([

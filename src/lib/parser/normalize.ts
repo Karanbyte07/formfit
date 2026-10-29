@@ -31,7 +31,9 @@ const DEVANAGARI_WORDS: [RegExp, string][] = [
  * Avoids splitting "black and white" into "black" + "white".
  */
 const PROTECTED_PHRASES: [RegExp, string][] = [
-  [/black\s+and\s+white/g, 'grayscale'],
+  [/gr[ae]y[\s-]?scale/g, 'grayscale'],
+  [/black\s*(?:and|&)\s*white/g, 'grayscale'],
+  [/b\s*&\s*w\b/g, 'grayscale'],
   [/kaala?\s+safed/g, 'grayscale'],
   [/kala?\s+safed/g, 'grayscale'],
   // range patterns with "and" — protect before clause splitting
@@ -78,7 +80,7 @@ const NUMBER_WORDS: [RegExp, string][] = [
   [/\bdas\b/g, '10'],
   // 'do' is tricky — only replace when NOT preceded by verbal roots (ghuma, kar, bana, etc.)
   // and NOT followed by 'wnload', 'main', etc.
-  [/(?<!\b(?:ghuma|kar|bana|hata|rakh)\s*)\bdo\b(?!wnload|main|or|ne)/g, '2'],
+  [/(?<!\b(?:ghuma|kar|bana|hata|rakh|nikal|nikalo)\s*)\bdo\b(?!wnload|main|or|ne)/g, '2'],
 ]
 
 /** Normalize units to canonical short form */
@@ -121,6 +123,10 @@ export function normalize(raw: string): string {
 
   // 4. Collapse all whitespace to single space
   s = s.replace(/\s+/g, ' ')
+
+  // 4b. Normalize degree symbols (° / डिग्री / अंश) to 'degree'
+  s = s.replace(/(\d+)\s*°/g, '$1 degree')
+  s = s.replace(/\b(?:डिग्री|अंश)\b/g, 'degree')
 
   // 5. Protect multi-word phrases BEFORE clause-splitting number word processing
   for (const [pattern, replacement] of PROTECTED_PHRASES) {

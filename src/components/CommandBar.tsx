@@ -17,6 +17,42 @@ const PLACEHOLDERS = [
   'pachaas kb se kam karo, jpeg mein',
 ]
 
+interface SpeechRecognitionResultItem {
+  transcript: string
+}
+
+interface SpeechRecognitionResultList {
+  [index: number]: {
+    [index: number]: SpeechRecognitionResultItem
+    isFinal?: boolean
+    length: number
+  }
+  length: number
+}
+
+interface SpeechRecognitionEvent {
+  resultIndex: number
+  results: SpeechRecognitionResultList
+}
+
+interface SpeechRecognitionErrorEvent {
+  error: string
+}
+
+interface ISpeechRecognition {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onstart: () => void
+  onresult: (event: SpeechRecognitionEvent) => void
+  onerror: (event: SpeechRecognitionErrorEvent) => void
+  onend: () => void
+  start: () => void
+  stop: () => void
+}
+
+type SpeechRecognitionConstructor = new () => ISpeechRecognition
+
 export default function CommandBar({ onFillCommand, filledCommand }: CommandBarProps) {
   const { state, dispatch } = useApp()
   const activeSlot = useActiveSlot()
@@ -26,6 +62,8 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
   const [placeholderIdx, setPlaceholderIdx] = useState(0)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [isListening, setIsListening] = useState(false)
+  const recognitionRef = useRef<unknown>(null)
 
   // Rotate placeholder every 4 seconds
   useEffect(() => {
@@ -150,6 +188,89 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
     runCommand(value)
   }
 
+  // Voice recognition handler
+  const toggleListening = useCallback(() => {
+    const SpeechRecognitionCtor =
+      (window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition ||
+      (window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition
+
+    if (!SpeechRecognitionCtor) {
+      dispatch({
+        type: 'LOG_MESSAGE',
+        message: 'Browser Speech Recognition is not available in this browser. Dictate directly using Wispr Flow or type below.',
+        logType: 'info',
+      })
+      textareaRef.current?.focus()
+      return
+    }
+
+    if (isListening) {
+      if (recognitionRef.current) {
+        try {
+          (recognitionRef.current as ISpeechRecognition).stop()
+        } catch {
+          // ignore
+        }
+      }
+      setIsListening(false)
+      return
+    }
+
+    try {
+      const recognition = new SpeechRecognitionCtor()
+      recognitionRef.current = recognition
+      recognition.continuous = false
+      recognition.interimResults = true
+      recognition.lang = navigator.language || 'en-IN'
+
+      recognition.onstart = () => {
+        setIsListening(true)
+        dispatch({
+          type: 'LOG_MESSAGE',
+          message: '🎙️ Listening... Speak naturally in English, Hindi, or Hinglish (e.g. "gray scale karo image ko 90° se ghuma do")',
+          logType: 'info',
+        })
+      }
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let transcript = ''
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript
+        }
+        if (transcript) {
+          setValue(transcript)
+          if (event.results[0].isFinal) {
+            runCommand(transcript)
+          }
+        }
+      }
+
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        setIsListening(false)
+        if (event.error !== 'no-speech') {
+          dispatch({
+            type: 'LOG_MESSAGE',
+            message: `Mic error: ${event.error}. Use Wispr Flow shortcut or type below.`,
+            logType: 'warn',
+          })
+        }
+      }
+
+      recognition.onend = () => {
+        setIsListening(false)
+      }
+
+      recognition.start()
+    } catch {
+      setIsListening(false)
+      dispatch({
+        type: 'LOG_MESSAGE',
+        message: 'Microphone access could not be started. Use Wispr Flow or type below.',
+        logType: 'warn',
+      })
+    }
+  }, [dispatch, isListening, runCommand])
+
   return (
     <div className="space-y-1.5 shrink-0">
       <div
@@ -171,22 +292,34 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
       >
         {/* Row 1: mic + full-width textarea */}
         <div className="flex items-start gap-2">
-          {/* Mic icon – decorative only, hint for Wispr */}
+          {/* Mic icon – speech recognition or Wispr hint */}
           <button
             id="btn-mic"
-            aria-label="Voice input hint (use Wispr Flow)"
-            className="flex-shrink-0 p-1.5 rounded-lg transition-colors duration-150 mt-0.5"
-            style={{ color: 'var(--color-muted)' }}
+            type="button"
+            onClick={toggleListening}
+            aria-label={isListening ? "Stop listening" : "Voice input (Click to speak or use Wispr Flow)"}
+            className={`flex-shrink-0 p-1.5 rounded-lg transition-all duration-150 mt-0.5 ${
+              isListening
+                ? 'bg-red-500/15 text-red-600 animate-pulse ring-2 ring-red-400'
+                : ''
+            }`}
+            style={{
+              color: isListening ? '#DC2626' : 'var(--color-muted)',
+              background: isListening ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+            }}
             onMouseEnter={e => {
-              ;(e.currentTarget as HTMLButtonElement).style.background = 'var(--color-bg)'
-              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--color-accent)'
+              if (!isListening) {
+                ;(e.currentTarget as HTMLButtonElement).style.background = 'var(--color-bg)'
+                ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--color-accent)'
+              }
             }}
             onMouseLeave={e => {
-              ;(e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--color-muted)'
+              if (!isListening) {
+                ;(e.currentTarget as HTMLButtonElement).style.background = 'transparent'
+                ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--color-muted)'
+              }
             }}
-            tabIndex={-1}
-            title="Hold your Wispr key and speak"
+            title={isListening ? "Listening... click to stop" : "Click to speak or hold Wispr Flow key"}
           >
             <Mic size={18} />
           </button>
@@ -208,12 +341,18 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
 
         {/* Row 2: Go button pinned right */}
         <div className="flex items-center justify-between">
-          {isAutoRunning && (
+          {isListening ? (
+            <span className="text-xs flex items-center gap-1.5 font-medium text-red-600 animate-pulse">
+              <span className="w-2 h-2 rounded-full bg-red-600 animate-ping inline-block" />
+              Listening… speak now
+            </span>
+          ) : isAutoRunning ? (
             <span className="text-xs flex items-center gap-1" style={{ color: 'var(--color-accent)' }}>
               <Loader2 size={12} className="animate-spin" /> Running…
             </span>
+          ) : (
+            <span />
           )}
-          {!isAutoRunning && <span />}
           <button
             id="btn-go"
             className="btn-primary py-1.5 px-4"

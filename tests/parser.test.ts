@@ -11,14 +11,9 @@ interface TestCase {
 }
 
 describe('parseCommand — corpus', () => {
-  let passed = 0
-  let total = 0
-
   // Run each test case from commands.json
   for (const tc of corpus as TestCase[]) {
     it(`[${tc.id}] ${tc.input || '<empty>'}${tc.note ? ` (${tc.note})` : ''}`, () => {
-      total++
-
       // MUST NOT throw
       let result: ReturnType<typeof parseCommand>
       expect(() => {
@@ -47,8 +42,6 @@ describe('parseCommand — corpus', () => {
           ).toBeTruthy()
         }
       }
-
-      passed++
     })
   }
 
@@ -185,5 +178,131 @@ describe('parseCommand — MB conversion', () => {
     const maxKb = result.intents.find(i => i.kind === 'max_kb')
     expect(maxKb).toBeTruthy()
     expect((maxKb as {kind:string; kb:number}).kb).toBe(1024)
+  })
+})
+
+describe('parseCommand — Natural voice, Hinglish & human speech dictation', () => {
+  it('handles user prompt: "gray scale karo image ko 90° se ghuma do"', () => {
+    const result = parseCommand('gray scale karo image ko 90° se ghuma do')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('grayscale')
+    expect(kinds).toContain('rotate')
+    const rot = result.intents.find(i => i.kind === 'rotate') as { degrees: number }
+    expect(rot.degrees).toBe(90)
+    expect(result.unknown).toEqual([])
+  })
+
+  it('handles "gray scale karo"', () => {
+    const result = parseCommand('gray scale karo')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toEqual(['grayscale'])
+    expect(result.unknown).toEqual([])
+  })
+
+  it('handles "grey scale karo"', () => {
+    const result = parseCommand('grey scale karo')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toEqual(['grayscale'])
+    expect(result.unknown).toEqual([])
+  })
+
+  it('handles "image ko 90° se ghuma do"', () => {
+    const result = parseCommand('image ko 90° se ghuma do')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('rotate')
+    const rot = result.intents.find(i => i.kind === 'rotate') as { degrees: number }
+    expect(rot.degrees).toBe(90)
+    expect(result.unknown).toEqual([])
+  })
+
+  it('handles "90° ghuma do"', () => {
+    const result = parseCommand('90° ghuma do')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('rotate')
+    const rot = result.intents.find(i => i.kind === 'rotate') as { degrees: number }
+    expect(rot.degrees).toBe(90)
+  })
+
+  it('handles "90 degree se ghuma do"', () => {
+    const result = parseCommand('90 degree se ghuma do')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('rotate')
+    const rot = result.intents.find(i => i.kind === 'rotate') as { degrees: number }
+    expect(rot.degrees).toBe(90)
+  })
+
+  it('handles "grayscale karo aur 90 degree rotate karo"', () => {
+    const result = parseCommand('grayscale karo aur 90 degree rotate karo')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('grayscale')
+    expect(kinds).toContain('rotate')
+  })
+
+  it('handles "180° se ghuma do"', () => {
+    const result = parseCommand('180° se ghuma do')
+    const rot = result.intents.find(i => i.kind === 'rotate') as { degrees: number }
+    expect(rot).toBeTruthy()
+    expect(rot.degrees).toBe(180)
+  })
+
+  it('handles "photo ko 270° ghuma do"', () => {
+    const result = parseCommand('photo ko 270° ghuma do')
+    const rot = result.intents.find(i => i.kind === 'rotate') as { degrees: number }
+    expect(rot).toBeTruthy()
+    expect(rot.degrees).toBe(270)
+  })
+
+  it('handles "black and white karo image ko 90° ghuma do"', () => {
+    const result = parseCommand('black and white karo image ko 90° ghuma do')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('grayscale')
+    expect(kinds).toContain('rotate')
+  })
+
+  it('handles "kala safed karo"', () => {
+    const result = parseCommand('kala safed karo')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('grayscale')
+  })
+
+  it('handles "color hata do image se 90 degree rotate kar do"', () => {
+    const result = parseCommand('color hata do image se 90 degree rotate kar do')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('grayscale')
+    expect(kinds).toContain('rotate')
+  })
+
+  it('handles "image ko thoda bright karo aur 90° ghuma do"', () => {
+    const result = parseCommand('image ko thoda bright karo aur 90° ghuma do')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('brightness')
+    expect(kinds).toContain('rotate')
+    const bright = result.intents.find(i => i.kind === 'brightness') as { delta: number }
+    expect(bright.delta).toBe(15)
+  })
+
+  it('handles "grayscale karo aur contrast badhao"', () => {
+    const result = parseCommand('grayscale karo aur contrast badhao')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('grayscale')
+    expect(kinds).toContain('contrast')
+    const contrast = result.intents.find(i => i.kind === 'contrast') as { delta: number }
+    expect(contrast.delta).toBe(15)
+  })
+
+  it('handles "crop to 200x230 px and make it gray scale"', () => {
+    const result = parseCommand('crop to 200x230 px and make it gray scale')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('resize_px')
+    expect(kinds).toContain('grayscale')
+  })
+
+  it('handles "50 kb se kam karo aur gray scale karo"', () => {
+    const result = parseCommand('50 kb se kam karo aur gray scale karo')
+    const kinds = result.intents.map(i => i.kind)
+    expect(kinds).toContain('max_kb')
+    expect(kinds).toContain('grayscale')
+    const maxKb = result.intents.find(i => i.kind === 'max_kb') as { kb: number }
+    expect(maxKb.kb).toBe(50)
   })
 })

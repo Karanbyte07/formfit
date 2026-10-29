@@ -12,7 +12,7 @@ export interface IntentRule {
 }
 
 /** Filler words/phrases to strip before attempting classification */
-export const FILLER_WORDS = /\b(?:please|bhai|yaar|kar do|karo|make it|image ko|photo ko|mujhe|mein|aur|phir|bas|zara|thodi|thoda si|image|photo|file|please)\b/g
+export const FILLER_WORDS = /\b(?:please|bhai|yaar|sir|ji|kar do|kar dena|kar dijiye|kijiye|karo|make it|convert it|change it|bana do|banao|rakho|rakh do|image ko|photo ko|picture ko|pic ko|image se|photo se|image|photo|picture|pic|file|mujhe|mein|me|se|pe|ko|aur|phir|fir|bas|zara|thoda sa|thoda si|thoda|thodi)\b/g
 
 // ─── Individual rule definitions ────────────────────────────────────────────
 
@@ -122,10 +122,13 @@ const RULES: IntentRule[] = [
   {
     kind: 'rotate',
     patterns: [
-      /rotate\s+(90|180|270)(?:\s*degrees?)?/,
-      /(90|180|270)\s*(?:degree|deg)?\s*(?:ghuma\s*do|ghumao|rotate)/,
+      /rotate\s+(90|180|270)(?:\s*(?:degrees?|deg|°))?/,
+      /(90|180|270)\s*(?:degree|deg|°)?\s*(?:se|pe|mein|me)?\s*(?:image\s+ko\s+|photo\s+ko\s+)?(?:ghuma\s*do|ghumao|ghuma\s+dena|rotate(?:\s+karo|\s+kar\s+do)?|turn(?:\s+karo|\s+kar\s+do)?)/,
+      /(?:ghuma\s*do|ghumao|ghuma\s+dena|rotate(?:\s+karo|\s+kar\s+do)?|turn(?:\s+karo|\s+kar\s+do)?)\s+(?:image\s+ko\s+|photo\s+ko\s+)?(90|180|270)(?:\s*(?:degrees?|deg|°))?/,
       /rotate\s+(?:right|clockwise)/,
       /rotate\s+(?:left|anti[\s-]?clockwise|counter[\s-]?clockwise)/,
+      /(?:right|clockwise)\s*(?:ghuma\s*do|ghumao|rotate)/,
+      /(?:left|anti[\s-]?clockwise|counter[\s-]?clockwise)\s*(?:ghuma\s*do|ghumao|rotate)/,
       /ulta\s+ghuma\s*do/,
       /seedha\s+karo/,
     ],
@@ -171,11 +174,14 @@ const RULES: IntentRule[] = [
   {
     kind: 'grayscale',
     patterns: [
-      /gr[ae]yscale/,
-      /black\s+and\s+white/,
-      /b\s*&\s*w\b/,
+      /gr[ae]y[\s-]?scale/,
+      /black\s*(?:and|&)\s*white/,
+      /\bb\s*&\s*w\b/,
       /kaala?\s+safed/,
       /kala?\s+safed/,
+      /\bmonochrome\b/,
+      /(?:color|colour)\s+(?:hata\s*do|hatao|remove|nikal\s*do|hata\s+dena)/,
+      /(?:without|no)\s+(?:color|colour)/,
     ],
     extract: () => ({ kind: 'grayscale' }),
   },
