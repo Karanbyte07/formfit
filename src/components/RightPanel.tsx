@@ -95,6 +95,7 @@ export default function RightPanel() {
     // Increment to force re-render even if same command is clicked twice
     fillVersion.current++
     setFilledCommand(cmd + '\u200b'.repeat(fillVersion.current % 5))
+    document.getElementById('command-input')?.focus()
   }, [])
 
   return (

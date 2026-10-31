@@ -166,7 +166,10 @@ export default function TopBar() {
               <button
                 key={tab.id}
                 id={`tab-${tab.id}`}
-                onClick={() => dispatch({ type: 'SET_ACTIVE_SLOT', slotId: tab.id })}
+                onClick={() => {
+                  dispatch({ type: 'SET_ACTIVE_SLOT', slotId: tab.id })
+                  document.getElementById('command-input')?.focus()
+                }}
                 aria-selected={isSlotActive}
                 className="px-3 py-1 rounded-md text-sm font-medium transition-all duration-150 flex items-center gap-1.5"
                 style={

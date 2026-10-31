@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { Mic, ArrowRight, Loader2 } from 'lucide-react'
 import { parseCommand } from '../lib/parser/parse'
 import { useApp, useActiveSlot } from '../state/context'
+import { useImageLoader } from '../lib/image/useImageLoader'
 
 interface CommandBarProps {
   onFillCommand?: (cmd: string) => void
@@ -56,6 +57,7 @@ type SpeechRecognitionConstructor = new () => ISpeechRecognition
 export default function CommandBar({ onFillCommand, filledCommand }: CommandBarProps) {
   const { state, dispatch } = useApp()
   const activeSlot = useActiveSlot()
+  const { loadSample } = useImageLoader()
   const [value, setValue] = useState('')
   const [isAutoRunning, setIsAutoRunning] = useState(false)
   const [lastUnknown, setLastUnknown] = useState<string[]>([])
@@ -65,6 +67,55 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
   const [isListening, setIsListening] = useState(false)
   const recognitionRef = useRef<unknown>(null)
 
+  // 1. Move cursor to text box immediately on mount & ensure focus
+  useEffect(() => {
+    const focusBox = () => {
+      if (textareaRef.current) {
+        textareaRef.current.focus({ preventScroll: true })
+        const valLen = textareaRef.current.value.length
+        textareaRef.current.setSelectionRange(valLen, valLen)
+      }
+    }
+
+    focusBox()
+    const rAF = requestAnimationFrame(focusBox)
+    const t1 = setTimeout(focusBox, 50)
+    const t2 = setTimeout(focusBox, 200)
+
+    return () => {
+      cancelAnimationFrame(rAF)
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
+  }, [])
+
+  // 2. Refocus when window regains focus or tab becomes visible (e.g. after using Wispr Flow overlay)
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      const active = document.activeElement
+      const isOtherInput =
+        active &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') &&
+        active !== textareaRef.current
+      if (!isOtherInput) {
+        textareaRef.current?.focus({ preventScroll: true })
+      }
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        handleWindowFocus()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [])
+
   // Rotate placeholder every 4 seconds
   useEffect(() => {
     const interval = setInterval(() => {
@@ -73,82 +124,168 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
     return () => clearInterval(interval)
   }, [])
 
+  const runCommand = useCallback(
+    async (cmd: string) => {
+      const raw = cmd.trim()
+      if (!raw) return
+
+      // Handle sample photo voice command (e.g. "sample photo", "try sample", "load sample")
+      const isSampleCmd =
+        /^\s*(?:try\s+)?sample(?:\s+photo|\s+image|\s+pic|\s+picture|\s+le\s+lo|\s+dikhao|\s+load)?\s*$/i.test(raw) ||
+        /\b(?:load|use|try|open|insert)\s+sample\b/i.test(raw)
+
+      if (isSampleCmd) {
+        await loadSample(activeSlot.id)
+        setValue('')
+        setLastUnknown([])
+        textareaRef.current?.focus({ preventScroll: true })
+        return
+      }
+
+      const result = parseCommand(raw, { defaultDpi: state.settings.dpi })
+
+      // Handle meta intents first
+      const metaKinds = new Set(['undo', 'reset', 'download'])
+      const metaIntents = result.intents.filter(i => metaKinds.has(i.kind))
+      const normalIntents = result.intents.filter(i => !metaKinds.has(i.kind))
+
+      for (const meta of metaIntents) {
+        if (meta.kind === 'undo') {
+          dispatch({ type: 'UNDO', slotId: activeSlot.id })
+        } else if (meta.kind === 'reset') {
+          dispatch({ type: 'RESET_SLOT', slotId: activeSlot.id })
+        } else if (meta.kind === 'download') {
+          const blob = activeSlot.result?.blob
+          if (blob) {
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            const ext = activeSlot.result?.format === 'png' ? 'png' : 'jpg'
+            a.download = `formfit-${activeSlot.id}.${ext}`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+          }
+        }
+      }
+
+      if (normalIntents.length > 0) {
+        // If user speaks a conversion command before dropping an image, automatically load sample image!
+        if (!activeSlot.original) {
+          await loadSample(activeSlot.id)
+        }
+
+        // Warn about conflicts
+        for (const w of result.warnings) {
+          dispatch({ type: 'LOG_MESSAGE', message: `⚠️ ${w}`, logType: 'warn' })
+        }
+
+        dispatch({
+          type: 'APPLY_PARSED_INTENTS',
+          slotId: activeSlot.id,
+          intents: normalIntents,
+          label: `Command: "${raw.slice(0, 60)}${raw.length > 60 ? '…' : ''}"`,
+        })
+
+        // Clear on success and keep cursor in text box
+        setValue('')
+        setLastUnknown(result.unknown)
+        textareaRef.current?.focus({ preventScroll: true })
+      } else if (metaIntents.length === 0) {
+        // Nothing understood
+        setLastUnknown(result.unknown.length > 0 ? result.unknown : [raw])
+        dispatch({
+          type: 'LOG_MESSAGE',
+          message: `Couldn't understand: "${raw.slice(0, 60)}"`,
+          logType: 'warn',
+        })
+        textareaRef.current?.focus({ preventScroll: true })
+      } else {
+        // Only meta intents
+        setValue('')
+        setLastUnknown([])
+        textareaRef.current?.focus({ preventScroll: true })
+      }
+    },
+    [activeSlot.id, activeSlot.original, activeSlot.result, dispatch, loadSample, state.settings.dpi]
+  )
+
+  // Auto-run trigger for Wispr Flow dictation
+  const scheduleAutoRun = useCallback(
+    (textToRun: string) => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+
+      debounceTimer.current = setTimeout(async () => {
+        const trimmed = textToRun.trim()
+        if (!trimmed) return
+        setIsAutoRunning(true)
+        try {
+          await runCommand(trimmed)
+        } finally {
+          setIsAutoRunning(false)
+        }
+      }, 600)
+    },
+    [runCommand]
+  )
+
+  // 3. Catch dictation / typing or paste from Wispr Flow anywhere on the page
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement
+      const isOtherInput =
+        active &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active as HTMLElement).isContentEditable)
+      if (isOtherInput) return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+
+      // Regular typing or Wispr simulated characters route to text box
+      if (e.key.length === 1) {
+        if (textareaRef.current && document.activeElement !== textareaRef.current) {
+          textareaRef.current.focus({ preventScroll: true })
+        }
+      }
+    }
+
+    const handleGlobalPaste = (e: ClipboardEvent) => {
+      const active = document.activeElement
+      const isOtherInput =
+        active &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active as HTMLElement).isContentEditable)
+      if (isOtherInput && active !== textareaRef.current) return
+
+      if (document.activeElement !== textareaRef.current) {
+        const pasted = e.clipboardData?.getData('text')
+        if (pasted && textareaRef.current) {
+          e.preventDefault()
+          textareaRef.current.focus({ preventScroll: true })
+          const combined = value ? `${value} ${pasted}` : pasted
+          setValue(combined)
+          scheduleAutoRun(combined)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    window.addEventListener('paste', handleGlobalPaste)
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown)
+      window.removeEventListener('paste', handleGlobalPaste)
+    }
+  }, [scheduleAutoRun, value])
+
   // Handle filled command from ExampleChips
   useEffect(() => {
     if (filledCommand) {
       setValue(filledCommand)
       setTimeout(() => runCommand(filledCommand), 0)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filledCommand])
-
-  const runCommand = useCallback((cmd: string) => {
-    const raw = cmd.trim()
-    if (!raw) return
-
-    const result = parseCommand(raw, { defaultDpi: state.settings.dpi })
-
-    // Handle meta intents first
-    const metaKinds = new Set(['undo', 'reset', 'download'])
-    const metaIntents = result.intents.filter(i => metaKinds.has(i.kind))
-    const normalIntents = result.intents.filter(i => !metaKinds.has(i.kind))
-
-    for (const meta of metaIntents) {
-      if (meta.kind === 'undo') {
-        dispatch({ type: 'UNDO', slotId: activeSlot.id })
-      } else if (meta.kind === 'reset') {
-        dispatch({ type: 'RESET_SLOT', slotId: activeSlot.id })
-      } else if (meta.kind === 'download') {
-        // Trigger download if result exists
-        const blob = activeSlot.result?.blob
-        if (blob) {
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          const ext = activeSlot.result?.format === 'png' ? 'png' : 'jpg'
-          a.download = `formfit-${activeSlot.id}.${ext}`
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-        }
-      }
-    }
-
-    if (normalIntents.length > 0) {
-      // Warn about conflicts
-      for (const w of result.warnings) {
-        dispatch({ type: 'LOG_MESSAGE', message: `⚠️ ${w}`, logType: 'warn' })
-      }
-
-      dispatch({
-        type: 'APPLY_PARSED_INTENTS',
-        slotId: activeSlot.id,
-        intents: normalIntents,
-        label: `Command: "${raw.slice(0, 60)}${raw.length > 60 ? '…' : ''}"`,
-      })
-
-      // Clear on success
-      setValue('')
-      setLastUnknown(result.unknown)
-    } else if (metaIntents.length === 0) {
-      // Nothing understood
-      setLastUnknown(result.unknown.length > 0 ? result.unknown : [raw])
-      dispatch({
-        type: 'LOG_MESSAGE',
-        message: `Couldn't understand: "${raw.slice(0, 60)}"`,
-        logType: 'warn',
-      })
-    } else {
-      // Only meta intents
-      setValue('')
-      setLastUnknown([])
-    }
-  }, [activeSlot.id, activeSlot.result, dispatch, state.settings.dpi])
+  }, [filledCommand, runCommand])
 
   // Expose runCommand for external fill
   if (onFillCommand) {
-    // onFillCommand is a ref-setter pattern; we handle in useEffect above
+    // onFillCommand is handled via props
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -156,22 +293,11 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
     setValue(newVal)
     setLastUnknown([])
 
-    // Clear existing debounce
     if (debounceTimer.current) clearTimeout(debounceTimer.current)
 
-    // 800ms auto-run on pause (Wispr Flow dictation pattern)
+    // Wispr Flow dictation pattern: auto-run 600ms after dictation pauses
     if (newVal.trim()) {
-      setIsAutoRunning(false)
-      debounceTimer.current = setTimeout(() => {
-        const parsed = parseCommand(newVal, { defaultDpi: state.settings.dpi })
-        const validNormal = parsed.intents.filter(i => !['undo','reset','download'].includes(i.kind))
-        // Auto-run if at least 1 valid intent found
-        if (validNormal.length > 0 || parsed.intents.length > 0) {
-          setIsAutoRunning(true)
-          runCommand(newVal)
-          setIsAutoRunning(false)
-        }
-      }, 800)
+      scheduleAutoRun(newVal)
     }
   }
 
@@ -188,7 +314,7 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
     runCommand(value)
   }
 
-  // Voice recognition handler
+  // Voice recognition handler (Web Speech fallback)
   const toggleListening = useCallback(() => {
     const SpeechRecognitionCtor =
       (window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition ||
@@ -197,10 +323,10 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
     if (!SpeechRecognitionCtor) {
       dispatch({
         type: 'LOG_MESSAGE',
-        message: 'Browser Speech Recognition is not available in this browser. Dictate directly using Wispr Flow or type below.',
+        message: 'Browser Speech Recognition is not available. Dictate directly using Wispr Flow or type below.',
         logType: 'info',
       })
-      textareaRef.current?.focus()
+      textareaRef.current?.focus({ preventScroll: true })
       return
     }
 
@@ -227,7 +353,7 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
         setIsListening(true)
         dispatch({
           type: 'LOG_MESSAGE',
-          message: '🎙️ Listening... Speak naturally in English, Hindi, or Hinglish (e.g. "gray scale karo image ko 90° se ghuma do")',
+          message: '🎙️ Listening... Speak naturally in English, Hindi, or Hinglish',
           logType: 'info',
         })
       }
@@ -297,11 +423,9 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
             id="btn-mic"
             type="button"
             onClick={toggleListening}
-            aria-label={isListening ? "Stop listening" : "Voice input (Click to speak or use Wispr Flow)"}
+            aria-label={isListening ? 'Stop listening' : 'Voice input (Click to speak or use Wispr Flow)'}
             className={`flex-shrink-0 p-1.5 rounded-lg transition-all duration-150 mt-0.5 ${
-              isListening
-                ? 'bg-red-500/15 text-red-600 animate-pulse ring-2 ring-red-400'
-                : ''
+              isListening ? 'bg-red-500/15 text-red-600 animate-pulse ring-2 ring-red-400' : ''
             }`}
             style={{
               color: isListening ? '#DC2626' : 'var(--color-muted)',
@@ -319,7 +443,7 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
                 ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--color-muted)'
               }
             }}
-            title={isListening ? "Listening... click to stop" : "Click to speak or hold Wispr Flow key"}
+            title={isListening ? 'Listening... click to stop' : 'Click to speak or hold Wispr Flow key'}
           >
             <Mic size={18} />
           </button>
@@ -329,7 +453,13 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
             ref={textareaRef}
             rows={2}
             className="flex-1 w-full bg-transparent border-0 outline-none focus:outline-none focus:ring-0 shadow-none resize-none text-sm leading-snug"
-            style={{ color: 'var(--color-text)', minHeight: '3rem', border: 'none', outline: 'none', boxShadow: 'none' }}
+            style={{
+              color: 'var(--color-text)',
+              minHeight: '3rem',
+              border: 'none',
+              outline: 'none',
+              boxShadow: 'none',
+            }}
             placeholder={PLACEHOLDERS[placeholderIdx]}
             aria-label="Command input — type or dictate your requirements"
             value={value}
@@ -386,11 +516,7 @@ export default function CommandBar({ onFillCommand, filledCommand }: CommandBarP
           </p>
           <p>
             Try:{' '}
-            {[
-              '50 KB se kam',
-              '200 by 230 pixel',
-              'jpeg mein',
-            ].map(example => (
+            {['50 KB se kam', '200 by 230 pixel', 'jpeg mein'].map(example => (
               <button
                 key={example}
                 className="underline mr-2"

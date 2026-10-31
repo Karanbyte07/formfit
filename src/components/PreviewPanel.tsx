@@ -41,6 +41,9 @@ export default function PreviewPanel() {
 
     if (files.length === 1) {
       loadFile(files[0], activeSlot.id)
+      setTimeout(() => {
+        document.getElementById('command-input')?.focus()
+      }, 100)
       return
     }
 
@@ -85,6 +88,9 @@ export default function PreviewPanel() {
       message: `Multi-file drop: ${bannerMsg}`,
       logType: 'success',
     })
+    setTimeout(() => {
+      document.getElementById('command-input')?.focus()
+    }, 100)
   }
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
@@ -220,7 +226,10 @@ export default function PreviewPanel() {
             <button
               id="btn-try-sample"
               className="btn-secondary"
-              onClick={() => loadSample(activeSlot.id)}
+              onClick={async () => {
+                await loadSample(activeSlot.id)
+                document.getElementById('command-input')?.focus()
+              }}
             >
               <Sparkles size={16} style={{ color: 'var(--color-accent)' }} /> Try sample {activeSlot.id}
             </button>

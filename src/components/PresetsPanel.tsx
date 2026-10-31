@@ -24,6 +24,7 @@ export default function PresetsPanel() {
     dispatch({ type: 'APPLY_PRESET', preset })
     setLastAppliedId(preset.id)
     setTimeout(() => setLastAppliedId(null), 2000)
+    document.getElementById('command-input')?.focus()
   }
 
   const handleSaveCurrentAsPreset = (e: React.FormEvent) => {
